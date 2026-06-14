@@ -13,8 +13,8 @@ public class Player {
     private float x;
     private float y;
 
-    private final float baseWidth = 50;
-    private final float baseHeight = 70;
+    private final float baseWidth = 70;
+    private final float baseHeight = 90;
     private float width = baseWidth;
     private float height = baseHeight;
     private float previousX;
@@ -32,6 +32,7 @@ public class Player {
     private final float jumpForce = -12;
 
     private boolean grounded;
+    private boolean platformLayer;
     private int animationTick;
     private boolean facingRight = true;
 
@@ -54,6 +55,11 @@ public class Player {
     }
 
     public void update() {
+        update(1f);
+    }
+
+    public void update(float frameScale) {
+        frameScale = PApplet.constrain(frameScale, 0.25f, 2.5f);
         previousX = x;
         previousY = y;
         updateScale();
@@ -61,19 +67,19 @@ public class Player {
         velX = 0;
 
         if(moveLeft) {
-            velX = -speed;
+            velX = -speed * frameScale;
             facingRight = false;
         }
 
         if(moveRight) {
-            velX = speed;
+            velX = speed * frameScale;
             facingRight = true;
         }
 
-        velY += gravity;
+        velY += gravity * frameScale;
 
         x += velX;
-        y += velY;
+        y += velY * frameScale;
         animationTick++;
 
         // Ground collision
@@ -81,13 +87,14 @@ public class Player {
             y = 500 - height;
             velY = 0;
             grounded = true;
+            platformLayer = false;
         } else {
             grounded = false;
         }
     }
 
     public void setSchoolZoom(boolean enabled) {
-        float nextTarget = enabled ? 1.35f : 1f;
+        float nextTarget = enabled ? 1.50f : 1f;
         if (Math.abs(nextTarget - scaleTarget) < 0.001f) {
             return;
         }
@@ -123,6 +130,7 @@ public class Player {
             y = platformY - height;
             velY = 0;
             grounded = true;
+            platformLayer = true;
         }
     }
 
@@ -196,6 +204,10 @@ public class Player {
         return height;
     }
 
+    public float getScale() {
+        return scale;
+    }
+
     public float getPreviousX() {
         return previousX;
     }
@@ -222,5 +234,9 @@ public class Player {
 
     public boolean isMovingUp() {
         return velY < 0;
+    }
+
+    public boolean isOnPlatformLayer() {
+        return platformLayer;
     }
 }

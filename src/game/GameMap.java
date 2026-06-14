@@ -27,8 +27,8 @@ public class GameMap {
     private static final int   CHUNK_W       = 900;
     private static final int   NPCS_PER_CHUNK = 0;
     private static final String SAVE_FILE    = "data/generated_map.csv";
-    private static final String MAP_VERSION  = "3";
-    private static final int   SCHOOL_START_CHUNK = 5;
+    private static final String MAP_VERSION  = "5";
+    private static final int   SCHOOL_START_CHUNK = 10;
 
     // ── Elevated terrain blocks ───────────────────────────────────────────────
     private static final int   TERR_MIN_W    = 180;   // min width of a raised block
@@ -46,22 +46,24 @@ public class GameMap {
     private static final int   BLDG_GAP_MAX  = 125;
 
     // ── Trees ────────────────────────────────────────────────────────────────
-    private static final int   TREE_MIN_H    = 90;
-    private static final int   TREE_MAX_H    = 180;
+    private static final int   TREE_MIN_H    = 85;
+    private static final int   TREE_MAX_H    = 170;
 
     // ── Fences ───────────────────────────────────────────────────────────────
     private static final int   FENCE_H       = 42;
     private static final int   FENCE_SEG_W   = 80;    // width of one fence tile
     private static final int   IMAGE_GAP_MIN = 56;
 
-    private static final int   SCHOOL_CEILING_Y = 85;
+    private static final int   SCHOOL_CEILING_Y = 0;
     private static final int   SCHOOL_FLOOR_Y = GROUND_Y;
     private static final int   SCHOOL_LOCKER_H = 190;
     private static final int   SCHOOL_PLANT_H = 145;
-    private static final int   SCHOOL_DOOR_H = 215;
+    private static final int   SCHOOL_DOOR_H = 195;
     private static final int   SCHOOL_WINDOW_H = 155;
-    private static final int   SCHOOL_NPC_H = 135;
+    private static final int   SCHOOL_NPC_H = 160;
     private static final int   WALKING_NPC_TRAVEL = 260;
+    private static final int   SCHOOL_WINDOW_GAP = 300;
+    private static final float SCHOOL_ENTRY_FADE_DISTANCE = 120f;
 
     // ── Enemy types ──────────────────────────────────────────────────────────
     public enum EnemyType { GEEK, ACE, JOCK }
@@ -110,6 +112,7 @@ public class GameMap {
         }
         drawSchoolProps(cameraX, screenW);
         drawSchoolNpcs(cameraX, screenW);
+        drawSchoolExteriorCover(cameraX, screenW, player);
         drawTrees(cameraX, screenW);         // trees in front of buildings
         drawGround(cameraX, screenW);        // flat ground strip
         drawNpcs(cameraX, screenW);
@@ -125,52 +128,64 @@ public class GameMap {
         return x >= SCHOOL_START_CHUNK * CHUNK_W;
     }
 
+    public float schoolEntryProgress(Player player) {
+        if (player == null) return 0f;
+        float schoolStartX = SCHOOL_START_CHUNK * CHUNK_W;
+        float playerCenterX = player.getX() + player.getWidth() / 2f;
+        return PApplet.constrain((playerCenterX - schoolStartX) / SCHOOL_ENTRY_FADE_DISTANCE, 0f, 1f);
+    }
+
     private boolean shouldDrawPlayerBehindGroundBuildings(Player player) {
         if (player == null) return false;
-        return player.getY() + player.getHeight() < GROUND_Y - 4;
+        return player.isOnPlatformLayer();
     }
 
     /** Returns the terrain block the player is landing on, or null. */
+    public TerrainBlock getPlatformAt(Player player) {
+        return getPlatformAt(player.getX(), player.getY(), player.getWidth(), player.getHeight(), player.getPreviousY());
+    }
+
     public TerrainBlock getPlatformAt(float px, float py, float pw, float ph) {
+        return getPlatformAt(px, py, pw, ph, py);
+    }
+
+    private TerrainBlock getPlatformAt(float px, float py, float pw, float ph, float previousY) {
         for (TerrainBlock t : terrain) {
             boolean xOverlap = px + pw > t.x && px < t.x + t.w;
             boolean landing  = py + ph >= t.surfaceY() && py + ph <= t.surfaceY() + 14;
-            if (xOverlap && landing) return t;
+            if (xOverlap && landing && canLandOnPlatformSpan(px, pw, ph, previousY, t)) return t;
         }
         return null;
     }
 
-    public void blockBuildingCoveredJumps(Player player) {
-        if (!player.isMovingUp()) {
-            return;
+    private boolean canLandOnPlatformSpan(float px, float pw, float ph, float previousY, TerrainBlock platform) {
+        if (platform.h <= 1) {
+            return true;
         }
 
-        float px = player.getX();
-        float py = player.getY();
-        float pw = player.getWidth();
-        float ph = player.getHeight();
-        float prevY = player.getPreviousY();
-
-        for (Building b : buildings) {
-            if (Math.abs((b.y + b.h) - GROUND_Y) > 2) {
-                continue;
-            }
-            if (!rectsOverlap(px, py, pw, ph, b.x, b.y, b.w, b.h)) {
-                continue;
-            }
-
-            boolean roseIntoBuilding = prevY >= b.y + b.h - 2;
-            if (roseIntoBuilding) {
-                player.setY(b.y + b.h);
-                player.stopVertical();
-                return;
-            }
+        float previousFootY = previousY + ph;
+        boolean wasAlreadyOnPlatform = Math.abs(previousFootY - platform.surfaceY()) <= 18;
+        if (wasAlreadyOnPlatform) {
+            return true;
         }
+
+        return !isPlatformSpanCoveredByBuilding(px, pw, platform);
     }
 
-    private boolean rectsOverlap(float ax, float ay, float aw, float ah,
-                                 float bx, float by, float bw, float bh) {
-        return ax + aw > bx && ax < bx + bw && ay + ah > by && ay < by + bh;
+    private boolean isPlatformSpanCoveredByBuilding(float px, float pw, TerrainBlock platform) {
+        for (Building b : buildings) {
+            boolean sameSurface = Math.abs((b.y + b.h) - platform.surfaceY()) < 2;
+            boolean xOverlap = px + pw > b.x && px < b.x + b.w;
+            if (sameSurface && xOverlap) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void blockBuildingCoveredJumps(Player player) {
+        // Buildings are visual facades. Jumping in front of them is allowed;
+        // covered platform spans are blocked only by getPlatformAt().
     }
 
     public Npc findNearbyNpc(Player player) {
@@ -348,13 +363,13 @@ public class GameMap {
 
     private void placeFences(int chunk, Random rng, float startX, List<float[]> imageFootprints) {
         // Try placing 1-2 fence segments in ground-level gaps
-        int attempts = 1 + rng.nextInt(2);
+        int attempts = 3 + rng.nextInt(3);
         for (int i = 0; i < attempts; i++) {
             float fx    = startX + 40 + rng.nextInt((int)(CHUNK_W - 200));
-            float fLen  = 60 + rng.nextInt(120);
+            float fLen  = 70 + rng.nextInt(150);
             float fy    = GROUND_Y - FENCE_H;
             // Fences can go anywhere on ground — they're short enough not to matter visually
-            if (!overlapsAnyWithGap(fx, fx + fLen, imageFootprints, IMAGE_GAP_MIN)) {
+            if (!overlapsAnyWithGap(fx, fx + fLen, imageFootprints, 28)) {
                 props.add(new Prop(chunk, PropType.FENCE, fx, fy, fLen, FENCE_H));
                 imageFootprints.add(new float[]{fx, fx + fLen});
             }
@@ -364,13 +379,13 @@ public class GameMap {
     private void placeTrees(int chunk, Random rng, float startX,
                             List<TerrainBlock> chunkTerrain, List<float[]> imageFootprints) {
         // Ground-level trees: avoid building footprints
-        int groundTrees = 1 + rng.nextInt(3);
+        int groundTrees = 3 + rng.nextInt(3);
         for (int i = 0; i < groundTrees; i++) {
             float th = TREE_MIN_H + rng.nextInt(TREE_MAX_H - TREE_MIN_H);
             float tw = th * 0.65f;
             float tx = startX + 30 + rng.nextInt((int)(CHUNK_W - tw - 60));
 
-            if (!overlapsAnyWithGap(tx, tx + tw, imageFootprints, IMAGE_GAP_MIN)) {
+            if (!overlapsAnyWithGap(tx, tx + tw, imageFootprints, 36)) {
                 props.add(new Prop(chunk, PropType.TREE, tx, GROUND_Y - th, tw, th));
                 imageFootprints.add(new float[]{tx, tx + tw});
             }
@@ -378,13 +393,13 @@ public class GameMap {
 
         // Trees on top of terrain blocks (fit within block width)
         for (TerrainBlock t : chunkTerrain) {
-            if (rng.nextFloat() < 0.5f) {
+            if (rng.nextFloat() < 0.8f) {
                 float th = TREE_MIN_H + rng.nextInt(TREE_MAX_H - TREE_MIN_H);
                 float tw = Math.min(th * 0.65f, t.w - 20); // must fit on block
                 if (tw < 30) continue;
                 float tx = t.x + 10 + rng.nextInt(Math.max(1, (int)(t.w - tw - 20)));
                 // Only place if it doesn't overlap a building on that block
-                if (!overlapsAnyWithGap(tx, tx + tw, imageFootprints, IMAGE_GAP_MIN)) {
+                if (!overlapsAnyWithGap(tx, tx + tw, imageFootprints, 36)) {
                     props.add(new Prop(chunk, PropType.TREE, tx, t.surfaceY() - th, tw, th));
                     imageFootprints.add(new float[]{tx, tx + tw});
                 }
@@ -409,6 +424,7 @@ public class GameMap {
 
     private void generateSchoolChunk(int chunk, Random rng, float startX) {
         List<float[]> occupied = new ArrayList<>();
+        List<float[]> windowsOnly = new ArrayList<>();
 
         int windows = 2 + rng.nextInt(2);
         for (int i = 0; i < windows; i++) {
@@ -416,8 +432,20 @@ public class GameMap {
             PImage img = safeImage(assets.windows, imageIndex);
             float h = SCHOOL_WINDOW_H;
             float w = h * imageRatio(img, 0.75f);
-            float x = startX + 90 + i * 280 + rng.nextInt(65);
-            addSchoolPropIfOpen(chunk, occupied, PropType.WINDOW, x, SCHOOL_CEILING_Y, w, h, imageIndex, IMAGE_GAP_MIN);
+            float x = startX + 70 + i * (w + SCHOOL_WINDOW_GAP) + rng.nextInt(45);
+            float y = SCHOOL_CEILING_Y + 32;
+            if (addSchoolPropIfOpen(chunk, occupied, PropType.WINDOW, x, y, w, h, imageIndex, SCHOOL_WINDOW_GAP)) {
+                windowsOnly.add(new float[]{x, y, x + w, y + h});
+            } else {
+                for (int attempt = 0; attempt < 5; attempt++) {
+                    x = startX + 60 + rng.nextInt((int) (CHUNK_W - w - 120));
+                    if (!rectOverlapsAny(x, y, w, h, windowsOnly, SCHOOL_WINDOW_GAP)
+                            && addSchoolPropIfOpen(chunk, occupied, PropType.WINDOW, x, y, w, h, imageIndex, IMAGE_GAP_MIN)) {
+                        windowsOnly.add(new float[]{x, y, x + w, y + h});
+                        break;
+                    }
+                }
+            }
         }
 
         float cursor = startX + 55 + rng.nextInt(50);
@@ -446,7 +474,7 @@ public class GameMap {
                 h = 82 + rng.nextInt(45);
             }
 
-            float w = type == PropType.DOOR ? 68 : h * imageRatio(img, type == PropType.BOARD ? 1.35f : 0.75f);
+            float w = type == PropType.DOOR ? 100 : h * imageRatio(img, type == PropType.BOARD ? 1.35f : 0.75f);
             float y = (type == PropType.BOARD)
                     ? SCHOOL_CEILING_Y + 145 + rng.nextInt(45)
                     : SCHOOL_FLOOR_Y - h;
@@ -521,15 +549,49 @@ public class GameMap {
         }
 
         Random rng = new Random(13000L + chunk * 34871L);
+        List<float[]> occupied = new ArrayList<>();
         int staticCount = 2 + rng.nextInt(3);
         for (int i = 0; i < staticCount; i++) {
-            float x = chunk * CHUNK_W + 100 + rng.nextInt(CHUNK_W - 190);
+            float npcW = schoolNpcWidth(safeImage(assets.idleNpcs, 0));
+            float x = findOpenSchoolNpcX(chunk, rng, occupied, npcW, false);
             int imageIndex = rng.nextInt(Math.max(1, assets.idleNpcs.length));
+            npcW = schoolNpcWidth(safeImage(assets.idleNpcs, imageIndex));
+            x = findOpenSchoolNpcX(chunk, rng, occupied, npcW, false);
+            occupied.add(new float[]{x, x + npcW});
             schoolNpcs.add(new SchoolNpc(chunk, x, SCHOOL_FLOOR_Y, imageIndex, false, rng.nextInt(WALKING_NPC_TRAVEL)));
         }
 
-        float walkX = chunk * CHUNK_W + 180 + rng.nextInt(180);
+        float walkW = schoolNpcWidth(assets.walkingNpc);
+        float walkX = findOpenSchoolNpcX(chunk, rng, occupied, walkW + WALKING_NPC_TRAVEL, true);
+        occupied.add(new float[]{walkX, walkX + walkW + WALKING_NPC_TRAVEL});
         schoolNpcs.add(new SchoolNpc(chunk, walkX, SCHOOL_FLOOR_Y, 0, true, rng.nextInt(WALKING_NPC_TRAVEL)));
+    }
+
+    private float findOpenSchoolNpcX(int chunk, Random rng, List<float[]> occupied, float width, boolean walking) {
+        float minX = chunk * CHUNK_W + 85;
+        float maxX = (chunk + 1) * CHUNK_W - width - 85;
+        float gap = walking ? 30 : 45;
+
+        for (int attempt = 0; attempt < 30; attempt++) {
+            float x = minX + rng.nextFloat() * Math.max(1, maxX - minX);
+            if (!overlapsAnyWithGap(x, x + width, occupied, gap)) {
+                return x;
+            }
+        }
+
+        float x = minX;
+        while (x <= maxX) {
+            if (!overlapsAnyWithGap(x, x + width, occupied, gap)) {
+                return x;
+            }
+            x += width + gap;
+        }
+
+        return minX;
+    }
+
+    private float schoolNpcWidth(PImage img) {
+        return SCHOOL_NPC_H * imageRatio(img, 0.75f);
     }
 
     // ── Draw ─────────────────────────────────────────────────────────────────
@@ -630,6 +692,59 @@ public class GameMap {
             }
             app.strokeWeight(1);
         }
+    }
+
+    private void drawSchoolExteriorCover(float cameraX, int screenW, Player player) {
+        float progress = schoolEntryProgress(player);
+        float alpha = 255f * (1f - progress);
+        if (alpha <= 1f) {
+            return;
+        }
+
+        int first = Math.max(SCHOOL_START_CHUNK, PApplet.floor(cameraX / CHUNK_W) - 1);
+        int last = PApplet.floor((cameraX + screenW) / CHUNK_W) + 1;
+
+        app.pushStyle();
+        for (int chunk = first; chunk <= last; chunk++) {
+            float x = chunk * CHUNK_W;
+
+            app.noStroke();
+            app.fill(230, 225, 207, alpha);
+            app.rect(x, 0, CHUNK_W, SCHOOL_FLOOR_Y);
+
+            app.fill(202, 196, 176, alpha);
+            app.rect(x, SCHOOL_FLOOR_Y, CHUNK_W, 120);
+
+            app.stroke(180, 170, 150, alpha);
+            app.strokeWeight(2);
+            app.line(x, SCHOOL_FLOOR_Y, x + CHUNK_W, SCHOOL_FLOOR_Y);
+
+            drawExteriorWindow(x + 105, 48, alpha);
+            drawExteriorWindow(x + 385, 48, alpha);
+            drawExteriorWindow(x + 665, 48, alpha);
+            drawExteriorWindow(x + 120, 263, alpha);
+            drawExteriorWindow(x + 410, 263, alpha);
+
+            app.noStroke();
+            app.fill(115, 82, 54, alpha);
+            app.rect(x + CHUNK_W - 150, SCHOOL_FLOOR_Y - 190, 95, 190, 3);
+            app.fill(225, 190, 72, alpha);
+            app.ellipse(x + CHUNK_W - 72, SCHOOL_FLOOR_Y - 95, 7, 7);
+        }
+        app.popStyle();
+    }
+
+    private void drawExteriorWindow(float x, float y, float alpha) {
+        app.fill(230, 238, 246, alpha);
+        app.stroke(105, 105, 100, alpha);
+        app.strokeWeight(3);
+        app.rect(x, y, 120, 90, 3);
+        app.strokeWeight(1);
+        app.line(x + 60, y + 4, x + 60, y + 86);
+        app.line(x + 4, y + 45, x + 116, y + 45);
+        app.fill(170, 185, 198, alpha * 0.4f);
+        app.noStroke();
+        app.rect(x + 4, y + 4, 112, 82, 3);
     }
 
     private void drawSchoolProps(float cameraX, int screenW) {

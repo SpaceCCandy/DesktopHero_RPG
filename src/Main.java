@@ -20,6 +20,7 @@ public class Main extends PApplet {
     private CardInventory cardInventory;
     private GameMap.Npc activeNpc;
     private int battleEndFrames;
+    private int lastFrameMillis;
 
     private GameState gameState;
 
@@ -51,6 +52,7 @@ public class Main extends PApplet {
         gameMap = new GameMap(this, assets);
         menu = new MenuScreen(cardInventory);
         battleScreen = new BattleScreen(cardInventory);
+        lastFrameMillis = millis();
     }
 
     @Override
@@ -66,11 +68,15 @@ public class Main extends PApplet {
             return;
         }
 
-        player.setSchoolZoom(gameMap.isSchoolX(player.getX()));
-        player.update();
+        int now = millis();
+        float frameScale = (now - lastFrameMillis) / (1000f / 60f);
+        lastFrameMillis = now;
+
+        player.setSchoolZoom(gameMap.isSchoolX(player.getX() + player.getWidth() / 2f));
+        player.update(frameScale);
         gameMap.blockBuildingCoveredJumps(player);
 
-        GameMap.TerrainBlock plat = gameMap.getPlatformAt(player.getX(), player.getY(), player.getWidth(), player.getHeight());
+        GameMap.TerrainBlock plat = gameMap.getPlatformAt(player);
         if (plat != null) {
             player.landOnPlatform(plat.surfaceY());
         }
@@ -79,6 +85,10 @@ public class Main extends PApplet {
 
         pushMatrix();
 
+        float worldZoom = 1f + (player.getScale() - 1f) * 0.35f;
+        translate(width / 2f, 500);
+        scale(worldZoom);
+        translate(-width / 2f, -500);
         translate(-camera.getX(), 0);
 
         gameMap.renderBehindPlayer(camera.getX(), width, player);
