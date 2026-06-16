@@ -2,8 +2,13 @@ package ui;
 
 import game.GameMap;
 import processing.core.PApplet;
+import processing.core.PImage;
 import rpg.CardDefinition;
 import rpg.CardInventory;
+import rpg.CheatSheetDefinition;
+
+import java.util.HashSet;
+import java.util.Set;
 
 public class BattleScreen {
 
@@ -15,7 +20,6 @@ public class BattleScreen {
 
     private static final int PLAYER_MAX_HEALTH = 100;
     private static final int MAX_ENERGY = 100;
-    private static final int ATTACK_ENERGY_GAIN = 15;
     private static final int SKIP_ENERGY_GAIN = 30;
 
     private final CardInventory inventory;
@@ -28,6 +32,12 @@ public class BattleScreen {
     private String enemyName = "Enemy";
     private Result result;
     private GameMap.EnemyType enemyType;
+    private PImage playerSprite;
+    private PImage enemySprite;
+    private String[] weaknessSubjects;
+    private final Set<String> usedCheatSheets = new HashSet<>();
+    private String cheatSheetPopup;
+    private int cheatSheetPopupFrames;
 
     public BattleScreen(CardInventory inventory) {
         this.inventory = inventory;
@@ -43,6 +53,15 @@ public class BattleScreen {
     }
 
     public void reset(int enemyMaxHealth, GameMap.EnemyType type) {
+        reset(enemyMaxHealth, type, null, null);
+    }
+
+    public void reset(int enemyMaxHealth, GameMap.EnemyType type, PImage playerSprite, PImage enemySprite) {
+        reset(enemyMaxHealth, type, playerSprite, enemySprite, null);
+    }
+
+    public void reset(int enemyMaxHealth, GameMap.EnemyType type, PImage playerSprite, PImage enemySprite,
+                      String[] weaknessSubjects) {
         String raw = type.name(); // "GEEK", "ACE", "JOCK"
         enemyName = raw.charAt(0) + raw.substring(1).toLowerCase(); // "Geek", "Ace", "Jock"
         playerHealth = PLAYER_MAX_HEALTH;
@@ -50,6 +69,12 @@ public class BattleScreen {
         this.enemyMaxHealth = enemyMaxHealth;
         enemyHealth = enemyMaxHealth;
         this.enemyType = type;  // NEW
+        this.playerSprite = playerSprite;
+        this.enemySprite = enemySprite;
+        this.weaknessSubjects = weaknessSubjects;
+        usedCheatSheets.clear();
+        cheatSheetPopup = null;
+        cheatSheetPopupFrames = 0;
         message = "Choose an attack";
         result = Result.NONE;
     }
@@ -69,8 +94,8 @@ public class BattleScreen {
         drawEnergyBar(p, 90, 112);
         drawHealthBar(p, enemyName, 680, 420, enemyHealth, enemyMaxHealth);
 
-        drawStickFigure(p, 300, 245);
-        drawStickFigure(p, 690, 245);
+        drawBattleSprite(p, playerSprite, 300, 310, 150, true);
+        drawBattleSprite(p, enemySprite, 690, 310, 150, false);
 
         p.fill(20);
         p.textAlign(PApplet.CENTER, PApplet.CENTER);
@@ -88,6 +113,8 @@ public class BattleScreen {
         }
 
         drawSkipButton(p, 610, 445);
+        drawCheatSheets(p, 760, 398);
+        drawCheatSheetPopup(p);
     }
 
     public void mousePressed(int mx, int my) {
@@ -109,6 +136,17 @@ public class BattleScreen {
 
         if (inside(mx, my, 610, 445, 130, 70)) {
             skipTurn();
+            return;
+        }
+
+        CheatSheetDefinition[] sheets = inventory.getCheatSheets().toArray(new CheatSheetDefinition[0]);
+        for (int i = 0; i < sheets.length; i++) {
+            int cx = 760;
+            int cy = 412 + i * 76;
+            if (inside(mx, my, cx, cy, 150, 68)) {
+                useCheatSheet(sheets[i]);
+                return;
+            }
         }
     }
 
@@ -126,17 +164,7 @@ public class BattleScreen {
 
         int dmg = card.damage;
 
-        // Check type effectiveness
-        boolean effective = false;
-        if (enemyType == GameMap.EnemyType.GEEK &&
-                (card.subject.equals("Comp Sci") || card.subject.equals("Math") || card.subject.equals("Science"))) {
-            effective = true;
-        } else if (enemyType == GameMap.EnemyType.ACE &&
-                (card.subject.equals("History") || card.subject.equals("English"))) {
-            effective = true;
-        } else if (enemyType == GameMap.EnemyType.JOCK && card.subject.equals("Gym")) {
-            effective = true;
-        }
+        boolean effective = isEffective(card.subject);
 
         if (effective) dmg = (int)(dmg * 1.25f);
 
@@ -150,7 +178,7 @@ public class BattleScreen {
         }
 
         String bonus = effective ? " (EFFECTIVE!)" : "";
-        enemyAttackAndRegainEnergy(ATTACK_ENERGY_GAIN,
+        enemyAttackAndRegainEnergy(0,
                 "You dealt " + dmg + bonus + ". ");
     }
 
@@ -171,7 +199,53 @@ public class BattleScreen {
             return;
         }
 
-        message = prefix + "Enemy dealt " + enemyDamage + ". Energy +" + energyGain + ".";
+        String energyText = energyGain > 0 ? " Energy +" + energyGain + "." : "";
+        message = prefix + "Enemy dealt " + enemyDamage + "." + energyText;
+    }
+
+    private boolean isEffective(String subject) {
+        if (weaknessSubjects != null && weaknessSubjects.length > 0) {
+            for (String weakness : weaknessSubjects) {
+                if (weakness.equals(subject)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        if (enemyType == GameMap.EnemyType.GEEK) {
+            return subject.equals("Comp Sci") || subject.equals("Math") || subject.equals("Science");
+        }
+        if (enemyType == GameMap.EnemyType.ACE) {
+            return subject.equals("History") || subject.equals("English");
+        }
+        return enemyType == GameMap.EnemyType.JOCK && subject.equals("Gym");
+    }
+
+    private void useCheatSheet(CheatSheetDefinition sheet) {
+        if (usedCheatSheets.contains(sheet.name)) {
+            cheatSheetPopup = sheet.name + " already used this battle.";
+            cheatSheetPopupFrames = 120;
+            return;
+        }
+
+        usedCheatSheets.add(sheet.name);
+        if ("Extra Time".equals(sheet.name)) {
+            energy = Math.min(MAX_ENERGY, energy + 35);
+            message = "Extra Time restored 35 energy.";
+        } else if ("Process of Elimination".equals(sheet.name)) {
+            enemyHealth = Math.max(0, enemyHealth - 30);
+            message = "Process of Elimination dealt 30 damage.";
+            if (enemyHealth == 0) {
+                result = Result.PLAYER_WON;
+            }
+        } else if ("Curve".equals(sheet.name)) {
+            playerHealth = Math.min(PLAYER_MAX_HEALTH, playerHealth + 30);
+            message = "Curve restored 30 HP.";
+        }
+
+        cheatSheetPopup = sheet.name + ": " + sheet.description;
+        cheatSheetPopupFrames = 150;
     }
 
     private void drawHealthBar(PApplet p, String label, int x, int y, int health, int maxHealth) {
@@ -223,8 +297,30 @@ public class BattleScreen {
         p.strokeWeight(1);
     }
 
+    private void drawBattleSprite(PApplet p, PImage sprite, int centerX, int footY, int maxH, boolean faceRight) {
+        if (sprite == null || sprite.width <= 0 || sprite.height <= 0) {
+            drawStickFigure(p, centerX, footY - 65);
+            return;
+        }
+
+        float h = maxH;
+        float w = h * sprite.width / (float) sprite.height;
+        float x = centerX - w / 2f;
+        float y = footY - h;
+
+        p.pushMatrix();
+        if (!faceRight) {
+            p.translate(x + w, y);
+            p.scale(-1, 1);
+            p.image(sprite, 0, 0, w, h);
+        } else {
+            p.image(sprite, x, y, w, h);
+        }
+        p.popMatrix();
+    }
+
     private float randomEnemyDamage() {
-        return 10 + Math.round(Math.random() * 10);
+        return 20 + Math.round(Math.random() * 16);
     }
 
     private void drawCard(PApplet p, CardDefinition card, int x, int y) {
@@ -264,6 +360,66 @@ public class BattleScreen {
         p.text("Skip Turn", x + 65, y + 26);
         p.textSize(12);
         p.text("+" + SKIP_ENERGY_GAIN + " energy", x + 65, y + 48);
+    }
+
+    private void drawCheatSheets(PApplet p, int x, int labelY) {
+        p.fill(20);
+        p.textAlign(PApplet.LEFT, PApplet.CENTER);
+        p.textSize(14);
+        p.text("Cheat Sheets", x, labelY);
+
+        CheatSheetDefinition[] sheets = inventory.getCheatSheets().toArray(new CheatSheetDefinition[0]);
+        if (sheets.length == 0) {
+            p.fill(110);
+            p.textSize(11);
+            p.text("None", x, labelY + 20);
+            return;
+        }
+
+        int cardW = 150;
+        int cardH = 68;
+        int gap = 8;
+        for (int i = 0; i < sheets.length; i++) {
+            int cx = x;
+            int cy = labelY + 14 + i * (cardH + gap);
+            boolean used = usedCheatSheets.contains(sheets[i].name);
+
+            p.fill(used ? 215 : sheets[i].fillColor);
+            p.stroke(used ? 160 : 90);
+            p.strokeWeight(1.5f);
+            p.rect(cx, cy, cardW, cardH, 5);
+            p.strokeWeight(1);
+
+            // Name at top
+            p.fill(used ? 130 : 20);
+            p.textAlign(PApplet.CENTER, PApplet.CENTER);
+            p.textSize(11);
+            p.text(sheets[i].name, cx + cardW / 2f, cy + 18);
+
+            // Divider line
+            p.stroke(used ? 160 : 120);
+            p.line(cx + 8, cy + 30, cx + cardW - 8, cy + 30);
+
+            // Description at bottom
+            p.fill(used ? 130 : 60);
+            p.textSize(10);
+            p.text(sheets[i].description, cx + 6, cy + 36, cardW - 12, 26);
+        }
+    }
+
+    private void drawCheatSheetPopup(PApplet p) {
+        if (cheatSheetPopup == null || cheatSheetPopupFrames <= 0) {
+            return;
+        }
+
+        cheatSheetPopupFrames--;
+        p.fill(255, 250, 215);
+        p.stroke(65);
+        p.rect(330, 170, 300, 92, 5);
+        p.fill(25);
+        p.textAlign(PApplet.CENTER, PApplet.CENTER);
+        p.textSize(14);
+        p.text(cheatSheetPopup, 350, 188, 260, 55);
     }
 
     private boolean inside(int mx, int my, int x, int y, int w, int h) {

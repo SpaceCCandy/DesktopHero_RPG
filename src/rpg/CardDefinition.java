@@ -44,8 +44,8 @@ public class CardDefinition {
         this.strokeColor = strokeColor;
         this.drawWeight = drawWeight;
         this.subject = subject;  // NEW
-        this.energyCost = Math.min(95, Math.max(8,
-                damage / 3 + Math.abs((name + subject + rarity).hashCode()) % 12));
+        int baseEnergyCost = Math.max(8, damage / 3 + Math.abs((name + subject + rarity).hashCode()) % 12);
+        this.energyCost = Math.min(100, (int) Math.ceil(baseEnergyCost * 1.44f));
     }
 
     public static CardDefinition findByName(String name) {

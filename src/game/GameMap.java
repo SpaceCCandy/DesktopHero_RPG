@@ -21,33 +21,33 @@ import java.util.*;
  */
 
 public class GameMap {
-
     // ── World ────────────────────────────────────────────────────────────────
     private static final int   GROUND_Y      = 500;   // y of the flat ground surface
     private static final int   CHUNK_W       = 900;
-    private static final int   NPCS_PER_CHUNK = 0;
+    private static final int   NPCS_PER_CHUNK = 3;
     private static final String SAVE_FILE    = "data/generated_map.csv";
-    private static final String MAP_VERSION  = "5";
-    private static final int   SCHOOL_START_CHUNK = 10;
+    private static final String MAP_VERSION  = "8";
+    private static final int   SCHOOL_START_CHUNK = 3;
 
     // ── Elevated terrain blocks ───────────────────────────────────────────────
-    private static final int   TERR_MIN_W    = 180;   // min width of a raised block
-    private static final int   TERR_MAX_W    = 340;
+    private static final int   TERR_MIN_W    = 155;   // min width of a raised block
+    private static final int   TERR_MAX_W    = 315;
     private static final int   TERR_MIN_H    = 55;    // how much it rises above ground
     private static final int   TERR_MAX_H    = 190;
-    private static final float TERR_CHANCE   = 0.55f; // probability per chunk
+    private static final float TERR_CHANCE   = 0.90f; // probability per chunk
 
     // ── Buildings ────────────────────────────────────────────────────────────
     private static final int   BLDG_MIN_W    = 85;
     private static final int   BLDG_MAX_W    = 260;
-    private static final int   BLDG_MIN_H    = 150;
-    private static final int   BLDG_MAX_H    = 270;
-    private static final int   BLDG_GAP_MIN  = 70;    // min gap between buildings
-    private static final int   BLDG_GAP_MAX  = 125;
+    private static final int   BLDG_MIN_H    = 180;
+    private static final int   BLDG_MAX_H    = 320;
+    private static final int   BLDG_GAP_MIN  = 24;    // min gap between buildings
+    private static final int   BLDG_GAP_MAX  = 62;
+    private static final int   BLDG_CLEARANCE = 12;
 
     // ── Trees ────────────────────────────────────────────────────────────────
-    private static final int   TREE_MIN_H    = 85;
-    private static final int   TREE_MAX_H    = 170;
+    private static final int   TREE_MIN_H    = 140;
+    private static final int   TREE_MAX_H    = 300;
 
     // ── Fences ───────────────────────────────────────────────────────────────
     private static final int   FENCE_H       = 42;
@@ -57,13 +57,16 @@ public class GameMap {
     private static final int   SCHOOL_CEILING_Y = 0;
     private static final int   SCHOOL_FLOOR_Y = GROUND_Y;
     private static final int   SCHOOL_LOCKER_H = 190;
-    private static final int   SCHOOL_PLANT_H = 145;
+    private static final int   SCHOOL_PLANT_H = 125;
     private static final int   SCHOOL_DOOR_H = 195;
     private static final int   SCHOOL_WINDOW_H = 155;
     private static final int   SCHOOL_NPC_H = 160;
-    private static final int   WALKING_NPC_TRAVEL = 260;
+    private static final int   WALKING_NPC_TRAVEL = 460;
     private static final int   SCHOOL_WINDOW_GAP = 300;
     private static final float SCHOOL_ENTRY_FADE_DISTANCE = 120f;
+    private static final float BACKGROUND_PARALLAX = 0.42f;
+    private static final int   STAIR_STEP_W = 105;
+    private static final int   MAP_SAVE_DEBOUNCE_MS = 900;
 
     // ── Enemy types ──────────────────────────────────────────────────────────
     public enum EnemyType { GEEK, ACE, JOCK }
@@ -77,7 +80,21 @@ public class GameMap {
     private final List<Prop>         props     = new ArrayList<>();
     private final List<Npc>          npcs      = new ArrayList<>();
     private final List<SchoolNpc>    schoolNpcs = new ArrayList<>();
+    private final List<StoryNpc>     storyNpcs = new ArrayList<>();
     private final Set<Integer>       generatedChunks = new HashSet<>();
+    private final Map<Integer, BackgroundChunk> backgroundChunks = new HashMap<>();
+    private long worldSeed = System.currentTimeMillis();
+    private boolean mapSavePending;
+    private int lastMapSaveMillis;
+    private int storyProgression;
+
+    // ── Visibility cache (perf) ───────────────────────────────────────────────
+    private float   cachedCameraX = Float.MIN_VALUE;
+    private int     cachedScreenW = -1;
+    private final List<TerrainBlock> visibleTerrain   = new ArrayList<>();
+    private final List<Building>     visibleBuildings = new ArrayList<>();
+    private final List<Prop>         visibleProps     = new ArrayList<>();
+    private final List<SchoolNpc>    visibleSchoolNpcs = new ArrayList<>();
 
     public GameMap(PApplet app, AssetManager assets) {
         this.app    = app;
@@ -101,26 +118,51 @@ public class GameMap {
             ensureNpcsForChunk(c);
             ensureSchoolNpcsForChunk(c);
         }
+        ensureStoryNpcForProgress();
+        refreshVisibilityCache(cameraX, screenW);
 
+        // Layer 1 — sky, parallax, clouds
         drawSky();
+        drawParallaxBackground(cameraX, screenW);
         drawSchoolBackground(cameraX, screenW);
-        drawFences(cameraX, screenW);        // fences go behind everything
+
+        // Layer 2 — platforms and buildings ON platforms
         drawTerrain(cameraX, screenW);
-        drawBuildingsForLayer(cameraX, screenW, false);
+        drawBuildingsForLayer(cameraX, screenW, false); // platform buildings
+
+        // Player slots in here when behind ground buildings (between layer 2 and 3)
+
+        // Layer 3 — ground buildings (in front of platforms and layer 2)
         if (!shouldDrawPlayerBehindGroundBuildings(player)) {
             drawBuildingsForLayer(cameraX, screenW, true);
         }
         drawSchoolProps(cameraX, screenW);
+        drawMathTestMarker(cameraX, screenW);
         drawSchoolNpcs(cameraX, screenW);
+
+        // Layer 4 — trees and fences, always in front of everything above
+        drawGround(cameraX, screenW);
+        drawTrees(cameraX, screenW);
+        drawFences(cameraX, screenW);
+        drawNpcs(cameraX, screenW, player);
+        drawStoryNpcs(cameraX, screenW, player);
         drawSchoolExteriorCover(cameraX, screenW, player);
-        drawTrees(cameraX, screenW);         // trees in front of buildings
-        drawGround(cameraX, screenW);        // flat ground strip
-        drawNpcs(cameraX, screenW);
+        flushPendingMapSave();
     }
 
     public void renderInFrontOfPlayer(float cameraX, int screenW, Player player) {
         if (shouldDrawPlayerBehindGroundBuildings(player)) {
+            // Layer 3 drawn after player — ground buildings, trees, fences all in front
             drawBuildingsForLayer(cameraX, screenW, true);
+            drawSchoolProps(cameraX, screenW);
+            drawMathTestMarker(cameraX, screenW);
+            drawSchoolNpcs(cameraX, screenW);
+            drawGround(cameraX, screenW);
+            drawTrees(cameraX, screenW);
+            drawFences(cameraX, screenW);
+            drawNpcs(cameraX, screenW, player);
+            drawStoryNpcs(cameraX, screenW, player);
+            drawSchoolExteriorCover(cameraX, screenW, player);
         }
     }
 
@@ -193,6 +235,7 @@ public class GameMap {
         float fy = player.getY() + player.getHeight();
         for (Npc npc : npcs) {
             if (!npc.defeated
+                    && npc.interactable
                     && Math.abs(cx - npc.x) < 85
                     && Math.abs(fy - npc.y) < 90)
                 return npc;
@@ -200,15 +243,65 @@ public class GameMap {
         return null;
     }
 
+    public StoryNpc findNearbyStoryNpc(Player player) {
+        float cx = player.getX() + player.getWidth() / 2f;
+        float fy = player.getY() + player.getHeight();
+        for (StoryNpc npc : storyNpcs) {
+            if (!npc.defeated
+                    && Math.abs(cx - npc.x) < 95
+                    && Math.abs(fy - npc.y) < 110) {
+                return npc;
+            }
+        }
+        return null;
+    }
+
+    public DoorEnemy findNearbyDoorEnemy(Player player) {
+        float cx = player.getX() + player.getWidth() / 2f;
+        float fy = player.getY() + player.getHeight();
+        for (Prop prop : props) {
+            if (prop.type != PropType.DOOR || !prop.enemyDoor || prop.defeated) {
+                continue;
+            }
+            float doorCenter = prop.x + prop.w / 2f;
+            if (Math.abs(cx - doorCenter) < 90 && Math.abs(fy - (prop.y + prop.h)) < 100) {
+                return new DoorEnemy(prop);
+            }
+        }
+        return null;
+    }
+
+    public boolean isNearMathTestDoor(Player player) {
+        if (storyProgression != 1) {
+            return false;
+        }
+
+        // Math test triggers at a fixed location just inside the school entrance
+        float mathTestX = SCHOOL_START_CHUNK * CHUNK_W + 200f;
+        float cx = player.getX() + player.getWidth() / 2f;
+        float fy = player.getY() + player.getHeight();
+
+        // Within 120px horizontally and standing on the ground
+        return Math.abs(cx - mathTestX) < 120 && Math.abs(fy - GROUND_Y) < 30;
+    }
+
     public void drawInteractionPrompt(Player player) {
-        if (findNearbyNpc(player) == null) return;
+        StoryNpc storyNpc = findNearbyStoryNpc(player);
+        boolean mathTestDoor = isNearMathTestDoor(player);
+        DoorEnemy doorEnemy = findNearbyDoorEnemy(player);
+        Npc fightNpc = findNearbyNpc(player);
+        if (storyNpc == null && !mathTestDoor && doorEnemy == null && fightNpc == null) return;
         app.fill(255, 245, 170);
         app.stroke(80);
         app.rect(320, 430, 320, 46, 6);
         app.fill(20);
         app.textAlign(PApplet.CENTER, PApplet.CENTER);
         app.textSize(16);
-        app.text("E to battle", 480, 453);
+        String prompt = "E to fight";
+        if (storyNpc != null) prompt = "E to talk";
+        if (doorEnemy != null) prompt = "E to fight";
+        if (mathTestDoor) prompt = "E to take math test";
+        app.text(prompt, 480, 453);
     }
 
     public void markDefeated(Npc npc) {
@@ -217,18 +310,40 @@ public class GameMap {
         saveGeneratedMap();
     }
 
+    public void markDefeated(StoryNpc npc) {
+        if (npc == null) return;
+        npc.defeated = true;
+    }
+
+    public void markDefeated(DoorEnemy doorEnemy) {
+        if (doorEnemy == null) return;
+        doorEnemy.prop.defeated = true;
+        saveGeneratedMap();
+    }
+
+    public void setStoryProgression(int storyProgression) {
+        if (this.storyProgression == storyProgression && !storyNpcs.isEmpty()) {
+            return;
+        }
+
+        this.storyProgression = storyProgression;
+        storyNpcs.clear();
+        ensureStoryNpcForProgress();
+    }
+
     // ── Step 1: Terrain block generation ─────────────────────────────────────
 
     private void generateChunkIfNeeded(int chunk) {
         if (generatedChunks.contains(chunk)) return;
         generatedChunks.add(chunk);
 
-        Random rng    = new Random(4000L + chunk * 99173L);
+        Random rng    = new Random(worldSeed + chunk * 99173L);
         float  startX = chunk * CHUNK_W;
 
         if (chunk >= SCHOOL_START_CHUNK) {
             generateSchoolChunk(chunk, rng, startX);
-            saveGeneratedMap();
+            requestMapSave();
+            cachedCameraX = Float.MIN_VALUE;
             return;
         }
 
@@ -299,8 +414,8 @@ public class GameMap {
                 float gap = BLDG_GAP_MIN + rng.nextInt(BLDG_GAP_MAX - BLDG_GAP_MIN);
                 cursor += bw + gap;
 
-                // 30% chance to stop early leaving open space
-                if (rng.nextFloat() < 0.30f) break;
+                // Sometimes leave a small break, but keep foreground chunks dense.
+                if (rng.nextFloat() < 0.10f) break;
             }
         }
 
@@ -311,20 +426,21 @@ public class GameMap {
             if (b.chunk == chunk) bldgFootprints.add(new float[]{ b.x, b.x + b.w });
         }
 
-        List<float[]> imageFootprints = new ArrayList<>(bldgFootprints);
+        // Fences still avoid buildings
+        List<float[]> fenceFootprints = new ArrayList<>();
+        placeFences(chunk, rng, startX, fenceFootprints);
 
-        // Fences: place in gaps on ground between buildings (can go behind)
-        placeFences(chunk, rng, startX, imageFootprints);
+        // Trees only avoid each other and fences — NOT buildings (trees render in front)
+        List<float[]> treeFootprints = new ArrayList<>(fenceFootprints);
+        placeTrees(chunk, rng, startX, chunkTerrain, treeFootprints);
 
-        // Trees: place on ground and on terrain surfaces, never overlap buildings
-        placeTrees(chunk, rng, startX, chunkTerrain, imageFootprints);
-
-        saveGeneratedMap();
+        requestMapSave();
+        cachedCameraX = Float.MIN_VALUE; // invalidate visibility cache
     }
 
     private void addStairsForBlock(int chunk, TerrainBlock block, List<TerrainBlock> chunkTerrain, Random rng) {
-        int steps = Math.max(2, (int) Math.ceil(block.h / 35f));
-        float stepW = 55;
+        int steps = Math.max(2, (int) Math.ceil(block.h / 55f));
+        float stepW = STAIR_STEP_W;
         boolean fromRight = rng.nextBoolean();
 
         for (int i = 1; i <= steps; i++) {
@@ -351,7 +467,7 @@ public class GameMap {
 
             float buildingBase = building.y + building.h;
             boolean sameSurface = Math.abs(buildingBase - surfaceY) < 2;
-            boolean overlaps = x2 > building.x - BLDG_GAP_MIN && x1 < building.x + building.w + BLDG_GAP_MIN;
+            boolean overlaps = x2 > building.x - BLDG_CLEARANCE && x1 < building.x + building.w + BLDG_CLEARANCE;
 
             if (sameSurface && overlaps) {
                 return true;
@@ -378,27 +494,51 @@ public class GameMap {
 
     private void placeTrees(int chunk, Random rng, float startX,
                             List<TerrainBlock> chunkTerrain, List<float[]> imageFootprints) {
-        // Ground-level trees: avoid building footprints
-        int groundTrees = 3 + rng.nextInt(3);
+        int groundTrees = 6 + rng.nextInt(3); // bump attempts to 6–8
+        int placed = 0;
+
         for (int i = 0; i < groundTrees; i++) {
             float th = TREE_MIN_H + rng.nextInt(TREE_MAX_H - TREE_MIN_H);
             float tw = th * 0.65f;
-            float tx = startX + 30 + rng.nextInt((int)(CHUNK_W - tw - 60));
 
-            if (!overlapsAnyWithGap(tx, tx + tw, imageFootprints, 36)) {
-                props.add(new Prop(chunk, PropType.TREE, tx, GROUND_Y - th, tw, th));
-                imageFootprints.add(new float[]{tx, tx + tw});
+            // Try random position first, then fall back to a sweep
+            float tx = -1;
+            for (int attempt = 0; attempt < 8; attempt++) {
+                float candidate = startX + 30 + rng.nextInt((int)(CHUNK_W - tw - 60));
+                if (!overlapsAnyWithGap(candidate, candidate + tw, imageFootprints, 18)) { // was 36
+                    tx = candidate;
+                    break;
+                }
+            }
+
+            if (tx < 0) continue; // no room found
+
+            props.add(new Prop(chunk, PropType.TREE, tx, GROUND_Y - th, tw, th));
+            imageFootprints.add(new float[]{tx, tx + tw});
+            placed++;
+        }
+
+        // Guarantee at least 2 trees per chunk by forcing placement in sparse zones
+        if (placed < 2) {
+            for (float zoneStart = startX; zoneStart < startX + CHUNK_W - 100 && placed < 2; zoneStart += CHUNK_W / 3f) {
+                float th = TREE_MIN_H + rng.nextInt(TREE_MAX_H - TREE_MIN_H);
+                float tw = th * 0.65f;
+                float tx = zoneStart + 20 + rng.nextInt((int)(CHUNK_W / 3f - tw - 40));
+                if (!overlapsAnyWithGap(tx, tx + tw, imageFootprints, 10)) {
+                    props.add(new Prop(chunk, PropType.TREE, tx, GROUND_Y - th, tw, th));
+                    imageFootprints.add(new float[]{tx, tx + tw});
+                    placed++;
+                }
             }
         }
 
-        // Trees on top of terrain blocks (fit within block width)
+        // Trees on terrain blocks (unchanged)
         for (TerrainBlock t : chunkTerrain) {
-            if (rng.nextFloat() < 0.8f) {
+            if (rng.nextFloat() < 0.9f) {
                 float th = TREE_MIN_H + rng.nextInt(TREE_MAX_H - TREE_MIN_H);
-                float tw = Math.min(th * 0.65f, t.w - 20); // must fit on block
+                float tw = Math.min(th * 0.65f, t.w - 20);
                 if (tw < 30) continue;
                 float tx = t.x + 10 + rng.nextInt(Math.max(1, (int)(t.w - tw - 20)));
-                // Only place if it doesn't overlap a building on that block
                 if (!overlapsAnyWithGap(tx, tx + tw, imageFootprints, 36)) {
                     props.add(new Prop(chunk, PropType.TREE, tx, t.surfaceY() - th, tw, th));
                     imageFootprints.add(new float[]{tx, tx + tw});
@@ -448,6 +588,7 @@ public class GameMap {
             }
         }
 
+        // First pass — main props along the floor
         float cursor = startX + 55 + rng.nextInt(50);
         while (cursor < startX + CHUNK_W - 80) {
             float choice = rng.nextFloat();
@@ -465,24 +606,68 @@ public class GameMap {
                 type = PropType.PLANT;
                 img = assets.plant;
                 h = SCHOOL_PLANT_H;
-            } else if (choice < 0.86f) {
+            } else if (choice < 0.75f) {
                 type = PropType.DOOR;
                 h = SCHOOL_DOOR_H;
             } else {
                 type = PropType.BOARD;
                 img = assets.board;
-                h = 82 + rng.nextInt(45);
+                h = 120 + rng.nextInt(67);
             }
 
             float w = type == PropType.DOOR ? 100 : h * imageRatio(img, type == PropType.BOARD ? 1.35f : 0.75f);
             float y = (type == PropType.BOARD)
-                    ? SCHOOL_CEILING_Y + 145 + rng.nextInt(45)
+                    ? SCHOOL_FLOOR_Y - h - 170
                     : SCHOOL_FLOOR_Y - h;
 
             if (addSchoolPropIfOpen(chunk, occupied, type, cursor, y, w, h, imageIndex, IMAGE_GAP_MIN)) {
                 cursor += w + 55 + rng.nextInt(80);
             } else {
                 cursor += 65;
+            }
+        }
+
+        // Second pass — fill remaining gaps
+        float fillCursor = startX + 40;
+        while (fillCursor < startX + CHUNK_W - 60) {
+            if (rectOverlapsAny(fillCursor, SCHOOL_FLOOR_Y - SCHOOL_LOCKER_H, 60, SCHOOL_LOCKER_H, occupied, IMAGE_GAP_MIN)) {
+                fillCursor += 20;
+                continue;
+            }
+
+            float fillChoice = rng.nextFloat();
+            PropType fillType;
+            float fillH;
+            int fillImageIndex = 0;
+            PImage fillImg = null;
+
+            if (fillChoice < 0.35f) {
+                fillType = PropType.LOCKER;
+                fillImageIndex = rng.nextInt(Math.max(1, assets.lockers.length));
+                fillImg = safeImage(assets.lockers, fillImageIndex);
+                fillH = SCHOOL_LOCKER_H;
+            } else if (fillChoice < 0.60f) {
+                fillType = PropType.PLANT;
+                fillImg = assets.plant;
+                fillH = SCHOOL_PLANT_H;
+            } else if (fillChoice < 0.80f) {
+                fillType = PropType.DOOR;
+                fillH = SCHOOL_DOOR_H;
+            } else {
+                fillType = PropType.BOARD;
+                fillImg = assets.board;
+                fillH = 120 + rng.nextInt(67);
+            }
+
+            float fillW = fillType == PropType.DOOR ? 100 : fillH * imageRatio(fillImg, fillType == PropType.BOARD ? 1.35f : 0.75f);
+            float fillY = fillType == PropType.BOARD
+                    ? SCHOOL_FLOOR_Y - fillH - 170
+                    : SCHOOL_FLOOR_Y - fillH;
+
+            if (addSchoolPropIfOpen(chunk, occupied, fillType, fillCursor, fillY, fillW, fillH, fillImageIndex, IMAGE_GAP_MIN)) {
+                fillCursor += fillW + 30 + rng.nextInt(40);
+            } else {
+                fillCursor += 25;
             }
         }
     }
@@ -495,7 +680,15 @@ public class GameMap {
         if (rectOverlapsAny(x, y, w, h, occupied, gap)) {
             return false;
         }
-        props.add(new Prop(chunk, type, x, y, w, h, imageIndex));
+        Prop prop = new Prop(chunk, type, x, y, w, h, imageIndex);
+        if (type == PropType.DOOR) {
+            int hash = Math.abs((int) (worldSeed + chunk * 43L + x * 11f));
+            prop.enemyDoor = hash % 100 < 36;
+            prop.maxHealth = 95 + hash % 61;
+            prop.enemyType = EnemyType.values()[hash % EnemyType.values().length];
+            prop.spriteIndex = hash % Math.max(1, assets.idleNpcs.length);
+        }
+        props.add(prop);
         occupied.add(new float[]{x, y, x + w, y + h});
         return true;
     }
@@ -521,18 +714,56 @@ public class GameMap {
         int count = 0;
         for (Npc n : npcs) if (n.chunk == chunk) count++;
 
-        Random     rng   = new Random(9000L + chunk * 55147L);
+        Random rng = new Random(worldSeed + chunk * 55147L);
         EnemyType[] types = EnemyType.values();
 
         while (count < NPCS_PER_CHUNK) {
             float nx   = chunk * CHUNK_W + 140 + count * 210 + rng.nextInt(80);
             int   hp   = 70 + rng.nextInt(81);
             EnemyType t = types[rng.nextInt(types.length)];
-            npcs.add(new Npc(chunk, nx, GROUND_Y, false, hp, t));
+            int spriteIndex = rng.nextInt(Math.max(1, assets.idleNpcs.length));
+            boolean interactable = rng.nextFloat() < 0.62f;
+            npcs.add(new Npc(chunk, nx, GROUND_Y, false, hp, t, spriteIndex, interactable));
             count++;
         }
 
-        saveGeneratedMap();
+        requestMapSave();
+    }
+
+    private void ensureStoryNpcForProgress() {
+        if (!storyNpcs.isEmpty()) {
+            return;
+        }
+
+        StoryNpc npc = storyNpcForProgression(storyProgression);
+        if (npc != null) {
+            storyNpcs.add(npc);
+        }
+    }
+
+    private StoryNpc storyNpcForProgression(int step) {
+        switch (step) {
+            case 0:
+                return new StoryNpc("dexter", "Dexter", 0, 620, GROUND_Y, false);
+            case 2:
+                return new StoryNpc("stacey", "Stacey", 2, 5400, GROUND_Y, false);
+            case 3:
+                return new StoryNpc("rico", "Rico", 3, 8100, GROUND_Y, false);
+            case 4:
+                return new StoryNpc("msPatel", "Ms. Patel", 4, 10800, GROUND_Y, false);
+            case 5:
+                return new StoryNpc("jamie", "Jamie", 5, 13500, GROUND_Y, false);
+            case 6:
+                return new StoryNpc("dexter", "Dexter", 6, 16200, GROUND_Y, false);
+            case 7:
+                return new StoryNpc("stacey", "Stacey", 7, 18900, GROUND_Y, false);
+            case 8:
+                return new StoryNpc("announcement", "Announcement", 8, 21600, GROUND_Y, false);
+            case 9:
+                return new StoryNpc("val", "The Val", 9, 26100, GROUND_Y, false);
+            default:
+                return null;
+        }
     }
 
     private void ensureSchoolNpcsForChunk(int chunk) {
@@ -548,7 +779,7 @@ public class GameMap {
             return;
         }
 
-        Random rng = new Random(13000L + chunk * 34871L);
+        Random rng = new Random(worldSeed + chunk * 34871L);
         List<float[]> occupied = new ArrayList<>();
         int staticCount = 2 + rng.nextInt(3);
         for (int i = 0; i < staticCount; i++) {
@@ -596,8 +827,121 @@ public class GameMap {
 
     // ── Draw ─────────────────────────────────────────────────────────────────
 
+    private void refreshVisibilityCache(float cameraX, int screenW) {
+        if (Math.abs(cameraX - cachedCameraX) < 4f && screenW == cachedScreenW &&
+                visibleTerrain.size() + visibleBuildings.size() + visibleProps.size() > 0) {
+            return; // cache still valid
+        }
+        cachedCameraX = cameraX;
+        cachedScreenW = screenW;
+
+        visibleTerrain.clear();
+        for (TerrainBlock t : terrain) {
+            if (isVisible(t.x, t.w, cameraX, screenW)) visibleTerrain.add(t);
+        }
+        visibleBuildings.clear();
+        for (Building b : buildings) {
+            if (isVisible(b.x, b.w, cameraX, screenW)) visibleBuildings.add(b);
+        }
+        visibleProps.clear();
+        for (Prop p : props) {
+            if (isVisible(p.x, p.w, cameraX, screenW)) visibleProps.add(p);
+        }
+        visibleSchoolNpcs.clear();
+        for (SchoolNpc n : schoolNpcs) {
+            float npcSpan = n.walking ? WALKING_NPC_TRAVEL + 80 : 80;
+            if (isVisible(n.x, npcSpan, cameraX, screenW)) {
+                visibleSchoolNpcs.add(n);
+            }
+        }
+    }
+
     private void drawSky() {
         app.background(210, 230, 255);
+    }
+
+    private void drawParallaxBackground(float cameraX, int screenW) {
+        float parallaxCamera = cameraX * BACKGROUND_PARALLAX;
+        int first = Math.max(0, PApplet.floor(parallaxCamera / CHUNK_W) - 1);
+        int last = PApplet.floor((parallaxCamera + screenW) / CHUNK_W) + 1;
+
+        app.pushStyle();
+        for (int chunk = first; chunk <= last; chunk++) {
+            BackgroundChunk background = backgroundForChunk(chunk);
+
+            for (BackgroundSprite sprite : background.clouds) {
+                PImage img = safeImage(assets.clouds, sprite.imageIndex);
+                float drawX = parallaxX(sprite.x, cameraX);
+                if (!isVisible(drawX, sprite.w, cameraX, screenW)) continue;
+                if (img != null) {
+                    app.tint(255, 190);
+                    app.image(img, drawX, sprite.y, sprite.w, sprite.h);
+                    app.noTint();
+                } else {
+                    app.noStroke();
+                    app.fill(255, 255, 255, 180);
+                    app.ellipse(drawX + sprite.w * 0.35f, sprite.y + sprite.h * 0.55f, sprite.w * 0.7f, sprite.h * 0.75f);
+                    app.ellipse(drawX + sprite.w * 0.65f, sprite.y + sprite.h * 0.5f, sprite.w * 0.75f, sprite.h * 0.65f);
+                }
+            }
+
+            for (BackgroundSprite sprite : background.buildings) {
+                PImage img = safeGetImage(sprite.imageIndex);
+                float drawX = parallaxX(sprite.x, cameraX);
+                if (!isVisible(drawX, sprite.w, cameraX, screenW)) continue;
+                if (img != null) {
+                    app.image(img, drawX, sprite.y, sprite.w, sprite.h);
+                    app.noStroke();
+                    app.fill(210, 230, 255, 105);
+                    app.rect(drawX, sprite.y, sprite.w, sprite.h);
+                } else {
+                    app.noStroke();
+                    app.fill(232, 238, 244);
+                    app.rect(drawX, sprite.y, sprite.w, sprite.h, 3);
+                }
+            }
+        }
+        app.noTint();
+        app.popStyle();
+    }
+
+    private float parallaxX(float sourceX, float cameraX) {
+        return sourceX + cameraX * (1f - BACKGROUND_PARALLAX);
+    }
+
+    private BackgroundChunk backgroundForChunk(int chunk) {
+        BackgroundChunk cached = backgroundChunks.get(chunk);
+        if (cached != null) {
+            return cached;
+        }
+
+        Random rng = new Random(worldSeed + 21000L + chunk * 61843L);
+        float chunkX = chunk * CHUNK_W;
+        BackgroundChunk background = new BackgroundChunk();
+
+        int clouds = 2 + rng.nextInt(2);
+        for (int i = 0; i < clouds; i++) {
+            int imageIndex = rng.nextInt(Math.max(1, assets.clouds.length));
+            PImage img = safeImage(assets.clouds, imageIndex);
+            float w = 105 + rng.nextInt(36);
+            float h = w / imageRatio(img, 2.2f);
+            float x = chunkX + 40 + rng.nextInt((int) Math.max(1, CHUNK_W - w - 80));
+            float y = 35 + rng.nextInt(115);
+            background.clouds.add(new BackgroundSprite(x, y, w, h, imageIndex));
+        }
+
+        int distantBuildings = 2 + rng.nextInt(2);
+        for (int i = 0; i < distantBuildings; i++) {
+            int imageIndex = rng.nextInt(Math.max(1, assets.buildings.length));
+            float w = 115 + rng.nextInt(51);
+            float h = 185 + rng.nextInt(95);
+            float x = chunkX + 60 + i * 300 + rng.nextInt(85);
+            float y = GROUND_Y - h;
+            background.buildings.add(new BackgroundSprite(x, y, w, h, imageIndex));
+        }
+
+        backgroundChunks.put(chunk, background);
+        return background;
     }
 
     private void drawGround(float cameraX, int screenW) {
@@ -610,28 +954,25 @@ public class GameMap {
         float drawW = Math.min(screenW + 40, schoolStartX - drawX);
         // Flat blue ground strip
         app.fill(100, 180, 255);
+        app.noStroke();
+        app.rect(drawX, GROUND_Y, drawW, 120);
         app.stroke(60, 140, 220);
         app.strokeWeight(2);
-        app.rect(drawX, GROUND_Y, drawW, 120);
+        app.line(drawX, GROUND_Y, drawX + drawW, GROUND_Y);
         app.strokeWeight(1);
     }
 
     private void drawTerrain(float cameraX, int screenW) {
         // Draw terrain blocks first (blue raised sections)
-        for (TerrainBlock t : terrain) {
-            if (!isVisible(t.x, t.w, cameraX, screenW)) continue;
-
+        for (TerrainBlock t : visibleTerrain) {
             app.fill(100, 180, 255);
-            app.stroke(60, 140, 220);
-            app.strokeWeight(2);
+            app.noStroke();
             app.rect(t.x, t.surfaceY(), t.w, t.h);
-            app.strokeWeight(1);
         }
     }
 
     private void drawBuildingsForLayer(float cameraX, int screenW, boolean groundLayer) {
-        for (Building b : buildings) {
-            if (!isVisible(b.x, b.w, cameraX, screenW)) continue;
+        for (Building b : visibleBuildings) {
 
             boolean buildingOnGround = Math.abs((b.y + b.h) - GROUND_Y) < 2;
             if (buildingOnGround != groundLayer) continue;
@@ -747,10 +1088,35 @@ public class GameMap {
         app.rect(x + 4, y + 4, 112, 82, 3);
     }
 
+    private void drawMathTestMarker(float cameraX, int screenW) {
+        if (storyProgression != 1) return;
+
+        float mathTestX = SCHOOL_START_CHUNK * CHUNK_W + 200f;
+        if (!isVisible(mathTestX - 60, 120, cameraX, screenW)) return;
+
+        float markerX = mathTestX;
+        float markerY = GROUND_Y;
+
+        // Draw a desk/paper icon on the floor
+        app.noStroke();
+        app.fill(255, 240, 160);
+        app.rect(markerX - 28, markerY - 48, 56, 40, 4);
+        app.fill(80);
+        app.textAlign(PApplet.CENTER, PApplet.CENTER);
+        app.textSize(11);
+        app.text("MATH TEST", markerX, markerY - 28);
+
+        // Pulsing arrow pointing down at the spot
+        float pulse = 0.5f + 0.5f * PApplet.sin(app.frameCount * 0.12f);
+        app.fill(255, 80 + (int)(120 * pulse), 80);
+        app.noStroke();
+        float arrowY = markerY - 60 - pulse * 8;
+        app.triangle(markerX - 10, arrowY, markerX + 10, arrowY, markerX, arrowY + 14);
+    }
+
     private void drawSchoolProps(float cameraX, int screenW) {
-        for (Prop prop : props) {
+        for (Prop prop : visibleProps) {
             if (!isSchoolProp(prop.type)) continue;
-            if (!isVisible(prop.x, prop.w, cameraX, screenW)) continue;
 
             PImage img = imageForSchoolProp(prop);
             if (img != null) {
@@ -762,7 +1128,7 @@ public class GameMap {
     }
 
     private void drawSchoolNpcs(float cameraX, int screenW) {
-        for (SchoolNpc npc : schoolNpcs) {
+        for (SchoolNpc npc : visibleSchoolNpcs) {
             float x = npc.x;
             boolean facingRight = true;
             PImage img;
@@ -803,9 +1169,8 @@ public class GameMap {
     }
 
     private void drawFences(float cameraX, int screenW) {
-        for (Prop prop : props) {
+        for (Prop prop : visibleProps) {
             if (prop.type != PropType.FENCE) continue;
-            if (!isVisible(prop.x, prop.w, cameraX, screenW)) continue;
 
             PImage img = assets.fence;
             if (img != null) {
@@ -818,9 +1183,8 @@ public class GameMap {
     }
 
     private void drawTrees(float cameraX, int screenW) {
-        for (Prop prop : props) {
+        for (Prop prop : visibleProps) {
             if (prop.type != PropType.TREE) continue;
-            if (!isVisible(prop.x, prop.w, cameraX, screenW)) continue;
 
             PImage img = assets.tree;
             if (img != null) {
@@ -839,21 +1203,57 @@ public class GameMap {
         }
     }
 
-    private void drawNpcs(float cameraX, int screenW) {
+    private void drawNpcs(float cameraX, int screenW, Player player) {
+        float entryProgress = schoolEntryProgress(player);
         for (Npc npc : npcs) {
-            if (npc.defeated || !isVisible(npc.x - 30, 60, cameraX, screenW)) continue;
+            if (npc.defeated || !isVisible(npc.x - 45, 90, cameraX, screenW)) continue;
+            // If the school cover is still more than half visible, skip NPCs inside school
+            if (entryProgress < 0.5f && isSchoolX(npc.x)) continue;
 
-            if      (npc.type == EnemyType.GEEK) { app.fill(255, 230,  50); app.stroke(180, 140,   0); }
-            else if (npc.type == EnemyType.ACE)  { app.fill( 80, 200, 100); app.stroke( 30, 120,  50); }
-            else                                  { app.fill(255, 140,  40); app.stroke(160,  80,   0); }
+            PImage img = assets.getNpcSprite(npc.spriteIndex);
+            float h = 115;
+            float w = h * imageRatio(img, 0.75f);
+            if (img != null) {
+                app.image(img, npc.x - w / 2f, npc.y - h, w, h);
+            } else {
+                if      (npc.type == EnemyType.GEEK) { app.fill(255, 230,  50); app.stroke(180, 140,   0); }
+                else if (npc.type == EnemyType.ACE)  { app.fill( 80, 200, 100); app.stroke( 30, 120,  50); }
+                else                                  { app.fill(255, 140,  40); app.stroke(160,  80,   0); }
+                app.rect(npc.x - 25, npc.y - 58, 50, 58, 5);
+            }
 
-            app.rect(npc.x - 25, npc.y - 58, 50, 58, 5);
+            if (npc.interactable) {
+                app.fill(40);
+                app.textAlign(PApplet.CENTER, PApplet.BOTTOM);
+                app.textSize(13);
+                app.text("E to fight", npc.x, npc.y - h - 8);
+            }
+        }
+    }
 
-            app.fill(40);
+    private void drawStoryNpcs(float cameraX, int screenW, Player player) {
+        float entryProgress = schoolEntryProgress(player);
+        for (StoryNpc npc : storyNpcs) {
+            if (npc.defeated || !isVisible(npc.x - 55, 110, cameraX, screenW)) continue;
+            if (entryProgress < 0.5f && isSchoolX(npc.x)) continue;
+
+            PImage img = assets.getStorySprite(npc.spriteId);
+            float h = 125;
+            float w = h * imageRatio(img, 0.75f);
+            if (img != null) {
+                app.image(img, npc.x - w / 2f, npc.y - h, w, h);
+            } else {
+                app.fill(120, 90, 190);
+                app.stroke(60);
+                app.rect(npc.x - 30, npc.y - 70, 60, 70, 5);
+            }
+
+            app.fill(30);
             app.textAlign(PApplet.CENTER, PApplet.BOTTOM);
-            app.textSize(13);
-            String label = npc.type.name().charAt(0) + npc.type.name().substring(1).toLowerCase();
-            app.text(label + " " + npc.maxHealth + "HP", npc.x, npc.y - 64);
+            app.textSize(14);
+            app.text(npc.name, npc.x, npc.y - h - 24);
+            app.textSize(12);
+            app.text("E to talk", npc.x, npc.y - h - 8);
         }
     }
 
@@ -928,12 +1328,31 @@ public class GameMap {
 
     private void drawFallbackSchoolProp(Prop prop) {
         if (prop.type == PropType.DOOR) {
-            app.fill(120, 92, 66);
-            app.stroke(70, 52, 38);
+            if (prop.defeated) {
+                // Defeated enemy door — faded, open-looking
+                app.fill(160, 130, 100);
+                app.stroke(90, 70, 50);
+            } else if (prop.enemyDoor) {
+                // Enemy door — red-tinted warning
+                app.fill(145, 70, 60);
+                app.stroke(90, 35, 28);
+            } else {
+                // Normal door
+                app.fill(120, 92, 66);
+                app.stroke(70, 52, 38);
+            }
             app.rect(prop.x, prop.y, prop.w, prop.h, 3);
+            // Door knob
             app.fill(230, 198, 80);
             app.noStroke();
             app.ellipse(prop.x + prop.w * 0.82f, prop.y + prop.h * 0.52f, 7, 7);
+            // Enemy door warning symbol
+            if (prop.enemyDoor && !prop.defeated) {
+                app.fill(255, 80, 60);
+                app.textAlign(PApplet.CENTER, PApplet.CENTER);
+                app.textSize(18);
+                app.text("!", prop.x + prop.w * 0.38f, prop.y + prop.h * 0.38f);
+            }
             return;
         }
 
@@ -945,18 +1364,39 @@ public class GameMap {
     // ── Save / Load ──────────────────────────────────────────────────────────
 
     private void saveGeneratedMap() {
+        mapSavePending = false;
+        lastMapSaveMillis = app.millis();
+
         List<String> lines = new ArrayList<>();
         File file = new File(app.sketchPath(SAVE_FILE));
         if (file.getParentFile() != null) file.getParentFile().mkdirs();
 
         lines.add("V," + MAP_VERSION);
+        lines.add("S," + worldSeed);
         for (int c : generatedChunks) lines.add("C," + c);
         for (TerrainBlock t : terrain) lines.add("T," + t.chunk+","+t.x+","+t.w+","+t.h);
         for (Building b : buildings)   lines.add("B," + b.chunk+","+b.x+","+b.y+","+b.w+","+b.h+","+b.imageIndex);
-        for (Prop p : props)           lines.add("P," + p.chunk+","+p.type.name()+","+p.x+","+p.y+","+p.w+","+p.h+","+p.imageIndex);
-        for (Npc n : npcs)             lines.add("N," + n.chunk+","+n.x+","+n.y+","+n.defeated+","+n.maxHealth+","+n.type.name());
+        for (Prop p : props)           lines.add("P," + p.chunk+","+p.type.name()+","+p.x+","+p.y+","+p.w+","+p.h+","+p.imageIndex+","+p.enemyDoor+","+p.defeated+","+p.maxHealth+","+p.enemyType.name()+","+p.spriteIndex);
+        for (Npc n : npcs)             lines.add("N," + n.chunk+","+n.x+","+n.y+","+n.defeated+","+n.maxHealth+","+n.type.name()+","+n.spriteIndex+","+n.interactable);
 
         app.saveStrings(file.getAbsolutePath(), lines.toArray(new String[0]));
+    }
+
+    private void requestMapSave() {
+        if (!mapSavePending) {
+            lastMapSaveMillis = app.millis();
+        }
+        mapSavePending = true;
+    }
+
+    private void flushPendingMapSave() {
+        if (!mapSavePending) {
+            return;
+        }
+
+        if (app.millis() - lastMapSaveMillis >= MAP_SAVE_DEBOUNCE_MS) {
+            saveGeneratedMap();
+        }
     }
 
     private void loadGeneratedMap() {
@@ -971,6 +1411,9 @@ public class GameMap {
             if (p.length == 0) continue;
             try {
                 switch (p[0]) {
+                    case "S":
+                        worldSeed = Long.parseLong(p[1]);  // NEW — restore the seed
+                        break;
                     case "C":
                         generatedChunks.add(PApplet.parseInt(p[1]));
                         break;
@@ -985,18 +1428,29 @@ public class GameMap {
                                 p.length >= 7 ? PApplet.parseInt(p[6]) : 0));
                         break;
                     case "P":
-                        props.add(new Prop(PApplet.parseInt(p[1]), PropType.valueOf(p[2]),
+                        Prop prop = new Prop(PApplet.parseInt(p[1]), PropType.valueOf(p[2]),
                                 PApplet.parseFloat(p[3]), PApplet.parseFloat(p[4]),
                                 PApplet.parseFloat(p[5]), PApplet.parseFloat(p[6]),
-                                p.length >= 8 ? PApplet.parseInt(p[7]) : 0));
+                                p.length >= 8 ? PApplet.parseInt(p[7]) : 0);
+                        if (p.length >= 13) {
+                            prop.enemyDoor = PApplet.parseBoolean(p[8]);
+                            prop.defeated = PApplet.parseBoolean(p[9]);
+                            prop.maxHealth = PApplet.parseInt(p[10]);
+                            prop.enemyType = EnemyType.valueOf(p[11]);
+                            prop.spriteIndex = PApplet.parseInt(p[12]);
+                        }
+                        props.add(prop);
                         break;
                     case "N":
                         EnemyType type = p.length >= 7
                                 ? EnemyType.valueOf(p[6])
                                 : EnemyType.values()[(int)(Math.random() * 3)];
+                        int spriteIndex = p.length >= 8 ? PApplet.parseInt(p[7]) : 0;
+                        boolean interactable = p.length >= 9 ? PApplet.parseBoolean(p[8]) : true;
                         npcs.add(new Npc(PApplet.parseInt(p[1]),
                                 PApplet.parseFloat(p[2]), PApplet.parseFloat(p[3]),
-                                PApplet.parseBoolean(p[4]), PApplet.parseInt(p[5]), type));
+                                PApplet.parseBoolean(p[4]), PApplet.parseInt(p[5]), type,
+                                spriteIndex, interactable));
                         break;
                 }
             } catch (Exception ignored) {}
@@ -1044,6 +1498,11 @@ public class GameMap {
         final PropType type;
         final float    x, y, w, h;
         final int      imageIndex;
+        boolean        enemyDoor;
+        boolean        defeated;
+        int            maxHealth = 100;
+        EnemyType      enemyType = EnemyType.GEEK;
+        int            spriteIndex;
 
         Prop(int chunk, PropType type, float x, float y, float w, float h) {
             this(chunk, type, x, y, w, h, 0);
@@ -1058,6 +1517,18 @@ public class GameMap {
             this.h     = h;
             this.imageIndex = imageIndex;
         }
+    }
+
+    public static class DoorEnemy {
+        private final Prop prop;
+
+        DoorEnemy(Prop prop) {
+            this.prop = prop;
+        }
+
+        public int getMaxHealth() { return prop.maxHealth; }
+        public EnemyType getType() { return prop.enemyType; }
+        public int getSpriteIndex() { return prop.spriteIndex; }
     }
 
     private static class SchoolNpc {
@@ -1077,23 +1548,65 @@ public class GameMap {
         }
     }
 
+    private static class BackgroundChunk {
+        final List<BackgroundSprite> clouds = new ArrayList<>();
+        final List<BackgroundSprite> buildings = new ArrayList<>();
+    }
+
+    private static class BackgroundSprite {
+        final float x, y, w, h;
+        final int imageIndex;
+
+        BackgroundSprite(float x, float y, float w, float h, int imageIndex) {
+            this.x = x;
+            this.y = y;
+            this.w = w;
+            this.h = h;
+            this.imageIndex = imageIndex;
+        }
+    }
+
     public static class Npc {
         final int       chunk;
         final float     x, y;
         final int       maxHealth;
         final EnemyType type;
+        final int       spriteIndex;
+        final boolean   interactable;
         boolean         defeated;
 
-        Npc(int chunk, float x, float y, boolean defeated, int maxHealth, EnemyType type) {
+        Npc(int chunk, float x, float y, boolean defeated, int maxHealth, EnemyType type,
+            int spriteIndex, boolean interactable) {
             this.chunk     = chunk;
             this.x         = x;
             this.y         = y;
             this.defeated  = defeated;
             this.maxHealth = maxHealth;
             this.type      = type;
+            this.spriteIndex = spriteIndex;
+            this.interactable = interactable;
         }
 
         public int       getMaxHealth() { return maxHealth; }
         public EnemyType getType()      { return type; }
+        public int       getSpriteIndex() { return spriteIndex; }
+        public boolean   isInteractable() { return interactable; }
+    }
+
+    public static class StoryNpc {
+        public final String spriteId;
+        public final String name;
+        public final int progressionStep;
+        public final float x, y;
+        boolean defeated;
+
+        StoryNpc(String spriteId, String name, int progressionStep, float x, float y, boolean defeated) {
+            this.spriteId = spriteId;
+            this.name = name;
+            this.progressionStep = progressionStep;
+            this.x = x;
+            this.y = y;
+            this.defeated = defeated;
+        }
     }
 }

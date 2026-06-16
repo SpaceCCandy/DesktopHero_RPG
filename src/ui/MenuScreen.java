@@ -3,6 +3,7 @@ package ui;
 import processing.core.PApplet;
 import rpg.CardDefinition;
 import rpg.CardInventory;
+import rpg.CheatSheetDefinition;
 
 import java.util.List;
 
@@ -56,7 +57,7 @@ public class MenuScreen {
 
     // ── Inventory window ─────────────────────────────────────────────────────
     private static final int INVENTORY_W            = 700;
-    private static final int INVENTORY_H            = 430;
+    private static final int INVENTORY_H            = 480;
     private static final int INV_SECTION_LABEL_Y    = 76;
     private static final int INV_DECK_X             = 32;
     private static final int INV_DECK_CARD_COL_W    = 92;
@@ -72,10 +73,10 @@ public class MenuScreen {
     private static final int INV_PACK_CARD_W        = 78;
     private static final int INV_PACK_CARD_H        = 82;
     private static final int INV_PACK_COLS          = 4;
-    private static final int INV_PACK_VISIBLE_ROWS  = 3;
+    private static final int INV_PACK_VISIBLE_ROWS  = 2;
     private static final int INV_SCROLLBAR_OFFSET_X = 38;
     private static final int INV_SCROLLBAR_PAD_TOP  = 104;
-    private static final int INV_SCROLLBAR_PAD_BOT  = 146;
+    private static final int INV_SCROLLBAR_PAD_BOT  = 196;
 
     // ── Settings window ──────────────────────────────────────────────────────
     private static final int SETTINGS_W = 320;
@@ -270,6 +271,7 @@ public class MenuScreen {
 
         drawWindowShell(p, "Inventory", x, y, INVENTORY_W, INVENTORY_H);
 
+        // Section labels
         p.fill(COLOR_TEXT_MED);
         p.textAlign(PApplet.LEFT, PApplet.CENTER);
         p.textSize(15);
@@ -310,6 +312,8 @@ public class MenuScreen {
                 y + INV_SCROLLBAR_PAD_TOP,
                 INVENTORY_H - INV_SCROLLBAR_PAD_BOT,
                 maxInventoryScroll(), inventoryScroll);
+
+        drawCheatSheets(p, x + INV_PACK_X, y + 310);
     }
 
     private void drawSettingsWindow(PApplet p) {
@@ -465,6 +469,61 @@ public class MenuScreen {
         p.fill(COLOR_TEXT_DARK);
         p.textSize(CARD_DMG_SIZE);
         p.text(card.damage + " dmg", x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_DMG_POS);
+    }
+
+    private void drawCheatSheets(PApplet p, int x, int y) {
+        p.fill(COLOR_TEXT_MED);
+        p.textAlign(PApplet.LEFT, PApplet.CENTER);
+        p.textSize(15);
+        p.text("Cheat Sheets", x, y);
+
+        List<CheatSheetDefinition> sheets = inventory.getCheatSheets();
+        if (sheets.isEmpty()) {
+            p.fill(COLOR_TEXT_GREY);
+            p.textSize(12);
+            p.text("None", x, y + 24);
+            return;
+        }
+
+        // Card dimensions matching the backpack cards
+        int cw = INV_PACK_CARD_W;
+        int ch = INV_PACK_CARD_H;
+        int colW = INV_PACK_CARD_COL_W;
+        int rowH = INV_PACK_CARD_ROW_H;
+
+        for (int i = 0; i < sheets.size(); i++) {
+            int cardX = x + (i % INV_PACK_COLS) * colW;
+            int cardY = y + 20 + (i / INV_PACK_COLS) * rowH;
+            drawSmallCheatSheet(p, sheets.get(i), cardX, cardY, cw, ch);
+        }
+    }
+
+    private void drawSmallCheatSheet(PApplet p, CheatSheetDefinition sheet, int x, int y, int w, int h) {
+        // White body with colored top strip — same style as knowledge cards
+        p.fill(255);
+        p.stroke(COLOR_CARD_STROKE);
+        p.strokeWeight(1);
+        p.rect(x, y, w, h, CARD_STRIP_RADIUS);
+
+        // Colored accent strip at top using the sheet's fill color
+        p.fill(sheet.fillColor);
+        p.noStroke();
+        p.rect(x + 1, y + 1, w - 2, CARD_STRIP_H, CARD_STRIP_RADIUS, CARD_STRIP_RADIUS, 0, 0);
+
+        // Name (where card name sits)
+        p.fill(COLOR_TEXT_DARK);
+        p.textAlign(PApplet.CENTER, PApplet.CENTER);
+        p.textSize(CARD_NAME_SIZE);
+        p.text(sheet.name, x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_NAME_POS);
+
+        // Thin divider line
+        p.stroke(215);
+        p.line(x + 6, y + h * 0.52f, x + w - 6, y + h * 0.52f);
+
+        // Description (where damage/subject sits)
+        p.fill(COLOR_TEXT_GREY);
+        p.textSize(9);
+        p.text(sheet.description, x + 5, y + CARD_STRIP_H + (h - CARD_STRIP_H) * 0.76f, w - 10, h * 0.30f);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
