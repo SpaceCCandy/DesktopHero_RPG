@@ -1,11 +1,14 @@
-V,2
-G,70
+V,3
+G,125
 B,Studying
-B,Bonus answers
+B,Studying
+B,Studying
+B,Billy tuants
 B,ChatGPT
-B,Textbook
+B,Deodorant
 B,Studying
-E,0,Studying
+B,Textbook
+E,0,Bonus answers
 E,1,Bonus answers
-E,2,ChatGPT
+E,2,Studying
 E,3,Textbook

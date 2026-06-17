@@ -19,15 +19,20 @@ public class AssetManager {
     public final PImage   board;
     public final PImage[] idleNpcs;
     public final PImage   walkingNpc;
-    public final PImage   dexter;
-    public final PImage   jamie;
-    public final PImage   msPatel;
-    public final PImage   mathtest;
-    public final PImage   announcement;
-    public final PImage   val;
-    public final PImage   stacey;
-    public final PImage   rico;
-    public final PImage   billy;
+
+    // Fightable NPC sprites
+    public final PImage npcGeek;
+    public final PImage npcAce;
+    public final PImage npcJock;
+    public final PImage npcDexter;
+    public final PImage npcJamie;
+    public final PImage npcMsPatel;
+    public final PImage npcMathTest;
+    public final PImage npcAnnouncement;
+    public final PImage npcVal;
+    public final PImage npcStacey;
+    public final PImage npcRico;
+    public final PImage npcBilly;
 
     public AssetManager(PApplet app) {
         playerIdle = app.loadImage("assets/PlayerIdle.png");
@@ -45,8 +50,8 @@ public class AssetManager {
                 app.loadImage("assets/buildings/building4.jpg")
         };
 
-        fence = loadSafe(app, "assets/backgrounds/fences.png");
-        tree  = loadSafe(app, "assets/backgrounds/Trees.png");
+        fence       = loadSafe(app, "assets/backgrounds/fences.png");
+        tree        = loadSafe(app, "assets/backgrounds/Trees.png");
         clouds = new PImage[]{
                 loadSafe(app, "assets/backgrounds/cloud1.png"),
                 loadSafe(app, "assets/backgrounds/cloud2.png"),
@@ -58,48 +63,52 @@ public class AssetManager {
                 loadSafe(app, "assets/backgrounds/locker2.png"),
                 loadSafe(app, "assets/backgrounds/locker3.png")
         };
-        plant = loadSafe(app, "assets/backgrounds/plant.png");
+        plant   = loadSafe(app, "assets/backgrounds/plant.png");
         windows = new PImage[]{
                 loadSafe(app, "assets/backgrounds/window1.png"),
                 loadSafe(app, "assets/backgrounds/window2.png")
         };
-        board = loadSafe(app, "assets/backgrounds/board.png");
+        board       = loadSafe(app, "assets/backgrounds/board.png");
         idleNpcs = new PImage[]{
                 loadSafe(app, "assets/npc/idleNPC1.png"),
                 loadSafe(app, "assets/npc/idleNPC2.png")
         };
-        walkingNpc = loadSafe(app, "assets/npc/walkingNPC1.png");
+        walkingNpc  = loadSafe(app, "assets/npc/walkingNPC1.png");
 
-        dexter = loadSafe(app, "assets/NPC_Dexter.png");
-        jamie = loadSafe(app, "assets/NPC_Jamie.png");
-        msPatel = loadSafe(app, "assets/NPC_MsPatel.png");
-        mathtest = loadSafe(app, "assets/NPC_Mathtest.png");
-        announcement = loadSafe(app, "assets/NPC_Announcement.png");
-        val = loadSafe(app, "assets/NPC_Val.png");
-        stacey = loadSafe(app, "assets/NPC_Stacey.png");
-        rico = loadSafe(app, "assets/NPC_Rico.png");
-        billy = loadSafe(app, "assets/Billy.png");
+        // Fightable enemy sprites
+        npcGeek = loadSafe(app, "assets/npc/NPC_Geek.png");
+        npcAce  = loadSafe(app, "assets/npc/NPC_Ace.png");
+        npcJock = loadSafe(app, "assets/npc/NPC_Jock.png");
+        npcDexter = loadSafe(app, "assets/npc/NPC_Dexter.png");
+        npcJamie = loadSafe(app, "assets/npc/NPC_Jamie.png");
+        npcMsPatel = loadSafe(app, "assets/npc/NPC_MsPatel.png");
+        npcMathTest = loadSafe(app, "assets/npc/NPC_Mathtest.png");
+        npcAnnouncement = loadSafe(app, "assets/npc/NPC_Announcement.png");
+        npcVal = loadSafe(app, "assets/npc/NPC_Val.png");
+        npcStacey = loadSafe(app, "assets/npc/NPC_Stacey.png");
+        npcRico = loadSafe(app, "assets/npc/NPC_Rico.png");
+        npcBilly = loadSafe(app, "assets/Billy.png");
     }
 
-    public PImage getNpcSprite(int index) {
-        if (idleNpcs == null || idleNpcs.length == 0) {
-            return null;
-        }
-        int safeIndex = Math.floorMod(index, idleNpcs.length);
-        return idleNpcs[safeIndex];
+    /** Returns the sprite image for the given enemy type. */
+    public PImage spriteForType(GameMap.EnemyType type) {
+        if (type == GameMap.EnemyType.GEEK) return npcGeek;
+        if (type == GameMap.EnemyType.ACE)  return npcAce;
+        return npcJock;
     }
 
-    public PImage getStorySprite(String id) {
-        if ("dexter".equals(id)) return dexter;
-        if ("jamie".equals(id)) return jamie;
-        if ("msPatel".equals(id)) return msPatel;
-        if ("mathtest".equals(id)) return mathtest;
-        if ("announcement".equals(id)) return announcement;
-        if ("val".equals(id)) return val;
-        if ("stacey".equals(id)) return stacey;
-        if ("rico".equals(id)) return rico;
-        if ("billy".equals(id)) return billy;
-        return null;
+    public PImage storySprite(String id) {
+        if ("dexter".equals(id)) return npcDexter;
+        if ("jamie".equals(id)) return npcJamie;
+        if ("msPatel".equals(id)) return npcMsPatel;
+        if ("mathtest".equals(id)) return npcMathTest;
+        if ("announcement".equals(id)) return npcAnnouncement;
+        if ("val".equals(id)) return npcVal;
+        if ("stacey".equals(id)) return npcStacey;
+        if ("rico".equals(id)) return npcRico;
+        if ("jock".equals(id)) return npcJock;
+        if ("billy".equals(id)) return npcBilly;
+        return npcDexter;
     }
 
     private PImage loadSafe(PApplet app, String path) {

@@ -1,161 +1,113 @@
 package ui;
 
 import processing.core.PApplet;
+import processing.core.PFont;
 import rpg.CardDefinition;
 import rpg.CardInventory;
-import rpg.CheatSheetDefinition;
 
 import java.util.List;
 
 public class MenuScreen {
 
-    private enum Window {
-        NONE,
-        TRADE,
-        INVENTORY,
-        SETTINGS
-    }
+    private enum Window { NONE, TRADE, INVENTORY, SETTINGS }
 
-    // ── Mini toggle button ───────────────────────────────────────────────────
-    private static final int MINI_X = 10;
-    private static final int MINI_Y = 10;
-    private static final int MINI_W = 95;
-    private static final int MINI_H = 34;
+    // ── Mini toggle ──────────────────────────────────────────────────────────
+    private static final int MINI_X = 10, MINI_Y = 10, MINI_W = 95, MINI_H = 34;
 
     // ── Main menu ────────────────────────────────────────────────────────────
-    private static final int MENU_TITLE_Y      = 44;
-    private static final int MENU_GUMBALLS_Y   = 84;
-    private static final int MENU_BTN_W        = 200;
-    private static final int MENU_BTN_H        = 48;
-    private static final int MENU_BTN_TRADE_Y  = 130;
-    private static final int MENU_BTN_INV_Y    = 198;
-    private static final int MENU_BTN_SET_Y    = 266;
-    private static final int MENU_BTN_PLAY_Y   = 334;
-    private static final int MENU_TITLE_SIZE   = 26;
-    private static final int MENU_GUMBALL_SIZE = 17;
+    private static final int MENU_TITLE_Y     = 44,  MENU_GUMBALLS_Y  = 82;
+    private static final int MENU_BTN_W       = 200, MENU_BTN_H       = 48;
+    private static final int MENU_BTN_TRADE_Y = 124, MENU_BTN_INV_Y   = 192;
+    private static final int MENU_BTN_SET_Y   = 260, MENU_BTN_PLAY_Y  = 328;
 
     // ── Trade window ─────────────────────────────────────────────────────────
-    private static final int TRADE_W              = 560;
-    private static final int TRADE_H              = 330;
-    private static final int TRADE_LEGEND_X       = 24;
-    private static final int TRADE_COMMON_Y       = 60;
-    private static final int TRADE_RARE_Y         = 78;
-    private static final int TRADE_LEGEND_Y       = 96;
-    private static final int TRADE_CYBER_Y        = 114;
-    private static final int TRADE_GUMBALLS_Y     = 154;
-    private static final int TRADE_BTN_Y          = 178;
-    private static final int TRADE_BTN_W          = 130;
-    private static final int TRADE_BTN_H          = 38;
-    private static final int TRADE_MESSAGE_Y      = 248;
-    private static final int TRADE_CARDS_START_X  = 205;
-    private static final int TRADE_CARDS_START_Y  = 58;
-    private static final int TRADE_CARD_COL_W     = 66;
-    private static final int TRADE_CARD_ROW_H     = 116;
-    private static final int TRADE_CARD_W         = 56;
-    private static final int TRADE_CARD_H         = 96;
-    private static final int TRADE_CARDS_PER_ROW  = 5;
+    private static final int TRADE_W = 580, TRADE_H = 340;
+    private static final int TRADE_LEGEND_X      = 24,  TRADE_COMMON_Y  = 66;
+    private static final int TRADE_RARE_Y        = 84,  TRADE_LEGEND_Y  = 102;
+    private static final int TRADE_CYBER_Y       = 120, TRADE_GUMBALLS_Y = 158;
+    private static final int TRADE_BTN_Y         = 182, TRADE_BTN_W     = 130, TRADE_BTN_H = 38;
+    private static final int TRADE_MESSAGE_Y     = 260;
+    private static final int TRADE_CARDS_X       = 215, TRADE_CARDS_Y   = 58;
+    private static final int TRADE_CARD_COL_W    = 66,  TRADE_CARD_ROW_H = 116;
+    private static final int TRADE_CARD_W        = 56,  TRADE_CARD_H     = 96;
+    private static final int TRADE_CARDS_PER_ROW = 5;
 
     // ── Inventory window ─────────────────────────────────────────────────────
-    private static final int INVENTORY_W            = 700;
-    private static final int INVENTORY_H            = 480;
-    private static final int INV_SECTION_LABEL_Y    = 76;
-    private static final int INV_DECK_X             = 32;
-    private static final int INV_DECK_CARD_COL_W    = 92;
-    private static final int INV_DECK_CARD_ROW_H    = 106;
-    private static final int INV_DECK_CARD_START_Y  = 104;
-    private static final int INV_DECK_CARD_W        = 74;
-    private static final int INV_DECK_CARD_H        = 92;
-    private static final int INV_SELECT_BORDER      = 4;
-    private static final int INV_PACK_X             = 250;
-    private static final int INV_PACK_CARD_COL_W    = 96;
-    private static final int INV_PACK_CARD_ROW_H    = 98;
-    private static final int INV_PACK_CARD_START_Y  = 104;
-    private static final int INV_PACK_CARD_W        = 78;
-    private static final int INV_PACK_CARD_H        = 82;
-    private static final int INV_PACK_COLS          = 4;
-    private static final int INV_PACK_VISIBLE_ROWS  = 2;
-    private static final int INV_SCROLLBAR_OFFSET_X = 38;
-    private static final int INV_SCROLLBAR_PAD_TOP  = 104;
-    private static final int INV_SCROLLBAR_PAD_BOT  = 196;
+    private static final int INVENTORY_W = 700, INVENTORY_H = 430;
+    private static final int INV_SECTION_Y       = 76;
+    private static final int INV_DECK_X          = 32;
+    private static final int INV_DECK_COL_W      = 92,  INV_DECK_ROW_H   = 106;
+    private static final int INV_DECK_START_Y    = 104;
+    private static final int INV_DECK_W          = 74,  INV_DECK_H       = 92;
+    private static final int INV_SELECT_BORDER   = 4;
+    private static final int INV_PACK_X          = 252;
+    private static final int INV_PACK_COL_W      = 96,  INV_PACK_ROW_H   = 98;
+    private static final int INV_PACK_START_Y    = 104;
+    private static final int INV_PACK_W          = 78,  INV_PACK_H       = 82;
+    private static final int INV_PACK_COLS       = 4,   INV_PACK_ROWS    = 3;
+    private static final int INV_SCROLL_X_OFF    = 38;
+    private static final int INV_SCROLL_PAD_TOP  = 104, INV_SCROLL_PAD_BOT = 146;
 
-    // ── Settings window ──────────────────────────────────────────────────────
-    private static final int SETTINGS_W = 320;
-    private static final int SETTINGS_H = 320;
+    // ── Settings ─────────────────────────────────────────────────────────────
+    private static final int SETTINGS_W = 320, SETTINGS_H = 320;
 
-    // ── Small card rendering ─────────────────────────────────────────────────
-    private static final int   CARD_STRIP_H      = 8;
-    private static final int   CARD_STRIP_RADIUS = 5;
+    // ── Card rendering ────────────────────────────────────────────────────────
+    private static final int   CARD_STRIP_H      = 9;
+    private static final int   CARD_RADIUS       = 6;
     private static final float CARD_NAME_POS     = 0.30f;
     private static final float CARD_SUBJ_POS     = 0.58f;
     private static final float CARD_DMG_POS      = 0.82f;
     private static final int   CARD_NAME_SIZE    = 11;
     private static final int   CARD_SUBJ_SIZE    = 10;
-    private static final int   CARD_DMG_SIZE     = 12;
+    private static final int   CARD_DMG_SIZE     = 11;
 
-    // ── Window chrome ────────────────────────────────────────────────────────
-    private static final int WINDOW_TITLE_SIZE    = 22;
-    private static final int WINDOW_TITLE_X       = 18;
-    private static final int WINDOW_TITLE_Y       = 26;
-    private static final int WINDOW_CLOSE_MARGIN  = 42;
-    private static final int WINDOW_CLOSE_SIZE    = 28;
-    private static final int WINDOW_CLOSE_PAD     = 11;
-    private static final int WINDOW_CLOSE_STROKE  = 4;
-    private static final int SCROLLBAR_W          = 14;
-    private static final int SCROLLBAR_THUMB_MIN  = 36;
-    private static final int SCROLLBAR_RADIUS     = 8;
+    // ── Window chrome ─────────────────────────────────────────────────────────
+    private static final int WIN_TITLE_SIZE   = 21;
+    private static final int WIN_TITLE_X      = 18, WIN_TITLE_Y = 26;
+    private static final int WIN_CLOSE_MARGIN = 42, WIN_CLOSE_SIZE = 28, WIN_CLOSE_PAD = 11;
+    private static final int SCROLLBAR_W     = 14,  SCROLLBAR_MIN   = 36, SCROLLBAR_R = 8;
 
-    // ── Button ───────────────────────────────────────────────────────────────
-    private static final int BTN_TEXT_SIZE = 16;
-    private static final int BTN_RADIUS    = 4;
+    // ── Colors (softer palette) ───────────────────────────────────────────────
+    private static final int C_BG         = 0xFFF5F2EC;   // warm off-white
+    private static final int C_PANEL      = 0xFFEEEAE0;
+    private static final int C_ACCENT     = 0xFF6B4E8A;   // soft purple
+    private static final int C_ACCENT2    = 0xFF4E7A8A;   // teal accent
+    private static final int C_TEXT       = 0xFF2A2030;
+    private static final int C_TEXT_MED   = 0xFF4A4060;
+    private static final int C_TEXT_SOFT  = 0xFF8A80A0;
+    private static final int C_GUMBALLS   = 0xFF1A7DCC;
+    private static final int C_COMMON     = 0xFF505050;
+    private static final int C_RARE_R     = 40,  C_RARE_G  = 160, C_RARE_B  = 70;
+    private static final int C_LEG_R      = 30,  C_LEG_G   = 140, C_LEG_B   = 210;
+    private static final int C_CYBER_R    = 110, C_CYBER_G = 60,  C_CYBER_B = 220;
+    private static final int C_SEL_R      = 80,  C_SEL_G   = 50,  C_SEL_B   = 160;
+    private static final int C_CARD_STR   = 180;
+    private static final int C_SCROLL_BG  = 240, C_SCROLL_FG = 140;
+    private static final int C_BTN_FILL   = 0xFFE8E2F5;
+    private static final int C_BTN_STR    = 0xFF9080B8;
+    private static final int C_WIN_STR    = 0xFFA090C0;
+    private static final int C_MINI_FILL  = 0xFFDED8F0;
 
-    // ── Colors ───────────────────────────────────────────────────────────────
-    private static final int COLOR_BG           = 0xFFF8F8F8;
-    private static final int COLOR_TEXT_DARK    = 20;
-    private static final int COLOR_TEXT_MED     = 30;
-    private static final int COLOR_TEXT_GREY    = 100;
-    private static final int COLOR_GUMBALLS     = 0xFF197DCC;  // blue
-    private static final int COLOR_COMMON_TEXT  = 60;
-    private static final int COLOR_RARE_R       = 45;
-    private static final int COLOR_RARE_G       = 190;
-    private static final int COLOR_RARE_B       = 80;
-    private static final int COLOR_LEG_R        = 35;
-    private static final int COLOR_LEG_G        = 160;
-    private static final int COLOR_LEG_B        = 220;
-    private static final int COLOR_CYBER_R      = 120;
-    private static final int COLOR_CYBER_G      = 70;
-    private static final int COLOR_CYBER_B      = 230;
-    private static final int COLOR_SELECTED_R   = 30;
-    private static final int COLOR_SELECTED_G   = 120;
-    private static final int COLOR_SELECTED_B   = 255;
-    private static final int COLOR_CARD_STROKE  = 180;
-    private static final int COLOR_SCROLLBAR_BG = 245;
-    private static final int COLOR_SCROLLBAR_FG = 120;
-    private static final int COLOR_BTN_FILL     = 225;
-    private static final int COLOR_BTN_STROKE   = 70;
-    private static final int COLOR_WIN_STROKE   = 75;
-    private static final int COLOR_MINI_FILL    = 220;
-
-    // ── State ────────────────────────────────────────────────────────────────
+    // ── State ─────────────────────────────────────────────────────────────────
     private final CardInventory inventory;
-    private boolean open = true;
-    private Window activeWindow = Window.NONE;
-    private String tradeMessage = "The official currency is gumballs.";
-    private int screenW = 960;
-    private int screenH = 580;
-    private int inventoryScroll;
+    private PFont font;
+    private boolean open           = true;
+    private Window  activeWindow   = Window.NONE;
+    private String  tradeMessage   = "Spend gumballs to draw new cards!";
+    private int     screenW        = 960, screenH = 580;
+    private int     inventoryScroll;
 
     public MenuScreen(CardInventory inventory) {
         this.inventory = inventory;
     }
 
-    // ── Public API ───────────────────────────────────────────────────────────
+    // ── Public API ────────────────────────────────────────────────────────────
 
     public void draw(PApplet p) {
-        screenW = p.width;
-        screenH = p.height;
+        ensureFont(p);
+        screenW = p.width; screenH = p.height;
 
         drawMiniButton(p);
-
         if (open) drawMainMenu(p);
 
         if      (activeWindow == Window.TRADE)     drawTradeWindow(p);
@@ -164,20 +116,15 @@ public class MenuScreen {
     }
 
     public void mousePressed(int mx, int my) {
-        if (inside(mx, my, MINI_X, MINI_Y, MINI_W, MINI_H)) {
-            open = !open;
-            return;
-        }
+        if (inside(mx, my, MINI_X, MINI_Y, MINI_W, MINI_H)) { open = !open; return; }
 
         if (activeWindow == Window.TRADE     && handleTradeClick(mx, my))     return;
         if (activeWindow == Window.INVENTORY && handleInventoryClick(mx, my)) return;
         if (activeWindow == Window.SETTINGS  && handleSettingsClick(mx, my))  return;
 
         if (!open) return;
-
         int menuW = screenW / 3;
-        int btnX = menuW / 2 - MENU_BTN_W / 2;
-
+        int btnX  = menuW / 2 - MENU_BTN_W / 2;
         if      (inside(mx, my, btnX, MENU_BTN_TRADE_Y, MENU_BTN_W, MENU_BTN_H)) activeWindow = Window.TRADE;
         else if (inside(mx, my, btnX, MENU_BTN_INV_Y,   MENU_BTN_W, MENU_BTN_H)) activeWindow = Window.INVENTORY;
         else if (inside(mx, my, btnX, MENU_BTN_SET_Y,   MENU_BTN_W, MENU_BTN_H)) activeWindow = Window.SETTINGS;
@@ -186,354 +133,287 @@ public class MenuScreen {
 
     public void mouseWheel(float amount) {
         if (activeWindow != Window.INVENTORY) return;
-
-        int maxScroll = maxInventoryScroll();
-        inventoryScroll += amount > 0 ? 1 : -1;
-        inventoryScroll = Math.max(0, Math.min(maxScroll, inventoryScroll));
+        inventoryScroll = PApplet.constrain(
+                inventoryScroll + (amount > 0 ? 1 : -1), 0, maxPackScroll());
     }
 
-    public boolean isOpen() {
-        return open;
-    }
+    public boolean isOpen() { return open; }
 
-    // ── Draw: top-level panels ───────────────────────────────────────────────
+    // ── Draw: mini button ─────────────────────────────────────────────────────
 
     private void drawMiniButton(PApplet p) {
-        p.fill(COLOR_MINI_FILL);
-        p.stroke(0);
-        p.rect(MINI_X, MINI_Y, MINI_W, MINI_H, BTN_RADIUS);
-
-        p.fill(0);
+        p.fill(C_MINI_FILL); p.stroke(C_BTN_STR); p.strokeWeight(1.5f);
+        p.rect(MINI_X, MINI_Y, MINI_W, MINI_H, 6);
+        p.strokeWeight(1);
+        p.fill(C_TEXT); useFont(p, 15);
         p.textAlign(PApplet.CENTER, PApplet.CENTER);
-        p.textSize(BTN_TEXT_SIZE);
-        p.text("Menu", MINI_X + MINI_W / 2f, MINI_Y + MINI_H / 2f);
+        p.text("≡  Menu", MINI_X + MINI_W / 2f, MINI_Y + MINI_H / 2f);
     }
+
+    // ── Draw: main menu ───────────────────────────────────────────────────────
 
     private void drawMainMenu(PApplet p) {
-        int mW = screenW / 3;
-        int mH = screenH;
+        int mW = screenW / 3, mH = screenH;
         int btnX = mW / 2 - MENU_BTN_W / 2;
 
-        p.fill(COLOR_BG);
-        p.stroke(45);
+        // Panel
+        p.fill(C_BG); p.stroke(C_WIN_STR); p.strokeWeight(1.5f);
         p.rect(0, 0, mW, mH);
+        p.strokeWeight(1);
 
-        p.fill(COLOR_TEXT_DARK);
+        // Accent bar at top
+        p.fill(C_ACCENT); p.noStroke();
+        p.rect(0, 0, mW, 58);
+
+        // Title
+        p.fill(255); useFont(p, 22);
         p.textAlign(PApplet.CENTER, PApplet.CENTER);
-        p.textSize(MENU_TITLE_SIZE);
-        p.text("Menu", mW / 2f, MENU_TITLE_Y);
+        p.text("📋  Menu", mW / 2f, MENU_TITLE_Y);
 
-        p.fill(COLOR_GUMBALLS);
-        p.textSize(MENU_GUMBALL_SIZE);
-        p.text(inventory.getGumballs() + " gumballs", mW / 2f, MENU_GUMBALLS_Y);
+        // Gumballs
+        p.fill(C_GUMBALLS); useFont(p, 15);
+        p.text("🟡  " + inventory.getGumballs() + " gumballs", mW / 2f, MENU_GUMBALLS_Y);
 
-        drawButton(p, "Trade",     btnX, MENU_BTN_TRADE_Y, MENU_BTN_W, MENU_BTN_H);
-        drawButton(p, "Inventory", btnX, MENU_BTN_INV_Y,   MENU_BTN_W, MENU_BTN_H);
-        drawButton(p, "Settings",  btnX, MENU_BTN_SET_Y,   MENU_BTN_W, MENU_BTN_H);
-        drawButton(p, "Play",      btnX, MENU_BTN_PLAY_Y,  MENU_BTN_W, MENU_BTN_H);
+        drawButton(p, "🛒  Trade",     btnX, MENU_BTN_TRADE_Y, MENU_BTN_W, MENU_BTN_H);
+        drawButton(p, "🎒  Inventory", btnX, MENU_BTN_INV_Y,   MENU_BTN_W, MENU_BTN_H);
+        drawButton(p, "⚙  Settings",  btnX, MENU_BTN_SET_Y,   MENU_BTN_W, MENU_BTN_H);
+        drawButton(p, "▶  Play",       btnX, MENU_BTN_PLAY_Y,  MENU_BTN_W, MENU_BTN_H);
     }
 
-    // ── Draw: windows ────────────────────────────────────────────────────────
+    // ── Draw: trade window ────────────────────────────────────────────────────
 
     private void drawTradeWindow(PApplet p) {
-        int x = centeredX(TRADE_W);
-        int y = centeredY(TRADE_H);
-
-        drawWindowShell(p, "Trade", x, y, TRADE_W, TRADE_H);
+        int x = cx(TRADE_W), y = cy(TRADE_H);
+        drawWindowShell(p, "🛒  Card Shop", x, y, TRADE_W, TRADE_H);
 
         p.textAlign(PApplet.LEFT, PApplet.CENTER);
-        p.textSize(12);
+        useFont(p, 12);
+        p.fill(C_COMMON);
+        p.text("Common  40%",      x + TRADE_LEGEND_X, y + TRADE_COMMON_Y);
+        p.fill(C_RARE_R, C_RARE_G, C_RARE_B);
+        p.text("Rare  30%",        x + TRADE_LEGEND_X, y + TRADE_RARE_Y);
+        p.fill(C_LEG_R, C_LEG_G, C_LEG_B);
+        p.text("Legendary  9%",    x + TRADE_LEGEND_X, y + TRADE_LEGEND_Y);
+        p.fill(C_CYBER_R, C_CYBER_G, C_CYBER_B);
+        p.text("Cyber Special  1%",x + TRADE_LEGEND_X, y + TRADE_CYBER_Y);
 
-        p.fill(COLOR_COMMON_TEXT);
-        p.text("Common 40%",      x + TRADE_LEGEND_X, y + TRADE_COMMON_Y);
-        p.fill(COLOR_RARE_R,  COLOR_RARE_G,  COLOR_RARE_B);
-        p.text("Rare 30%",        x + TRADE_LEGEND_X, y + TRADE_RARE_Y);
-        p.fill(COLOR_LEG_R,   COLOR_LEG_G,   COLOR_LEG_B);
-        p.text("Legendary 9%",    x + TRADE_LEGEND_X, y + TRADE_LEGEND_Y);
-        p.fill(COLOR_CYBER_R, COLOR_CYBER_G, COLOR_CYBER_B);
-        p.text("Cyber Special 1%",x + TRADE_LEGEND_X, y + TRADE_CYBER_Y);
-
-        p.fill(COLOR_TEXT_MED);
+        p.fill(C_TEXT_MED);
+        useFont(p, 13);
         p.text("Gumballs: " + inventory.getGumballs(), x + TRADE_LEGEND_X, y + TRADE_GUMBALLS_Y);
-        drawButton(p, "Draw 20", x + TRADE_LEGEND_X, y + TRADE_BTN_Y, TRADE_BTN_W, TRADE_BTN_H);
+        drawButton(p, "Draw  20 🟡", x + TRADE_LEGEND_X, y + TRADE_BTN_Y, TRADE_BTN_W, TRADE_BTN_H);
+
+        p.fill(C_TEXT_SOFT); useFont(p, 12);
         p.text(tradeMessage, x + TRADE_LEGEND_X, y + TRADE_MESSAGE_Y);
 
         for (int i = 0; i < CardDefinition.ALL.length; i++) {
-            int cardX = x + TRADE_CARDS_START_X + (i % TRADE_CARDS_PER_ROW) * TRADE_CARD_COL_W;
-            int cardY = y + TRADE_CARDS_START_Y  + (i / TRADE_CARDS_PER_ROW) * TRADE_CARD_ROW_H;
-            drawSmallCard(p, CardDefinition.ALL[i], cardX, cardY, TRADE_CARD_W, TRADE_CARD_H);
+            int cx = x + TRADE_CARDS_X + (i % TRADE_CARDS_PER_ROW) * TRADE_CARD_COL_W;
+            int cy = y + TRADE_CARDS_Y  + (i / TRADE_CARDS_PER_ROW) * TRADE_CARD_ROW_H;
+            drawSmallCard(p, CardDefinition.ALL[i], cx, cy, TRADE_CARD_W, TRADE_CARD_H);
         }
     }
 
-    private void drawInventoryWindow(PApplet p) {
-        int x = centeredX(INVENTORY_W);
-        int y = centeredY(INVENTORY_H);
+    // ── Draw: inventory window ────────────────────────────────────────────────
 
-        drawWindowShell(p, "Inventory", x, y, INVENTORY_W, INVENTORY_H);
+    private void drawInventoryWindow(PApplet p) {
+        int x = cx(INVENTORY_W), y = cy(INVENTORY_H);
+        drawWindowShell(p, "🎒  Inventory", x, y, INVENTORY_W, INVENTORY_H);
 
         // Section labels
-        p.fill(COLOR_TEXT_MED);
+        p.fill(C_ACCENT); useFont(p, 14);
         p.textAlign(PApplet.LEFT, PApplet.CENTER);
-        p.textSize(15);
-        p.text("Battle Deck", x + INV_DECK_X,  y + INV_SECTION_LABEL_Y);
-        p.text("Backpack",    x + INV_PACK_X,  y + INV_SECTION_LABEL_Y);
+        p.text("Battle Deck", x + INV_DECK_X, y + INV_SECTION_Y);
+        p.text("Backpack",    x + INV_PACK_X, y + INV_SECTION_Y);
+
+        // Separator line under labels
+        p.stroke(C_ACCENT); p.strokeWeight(1.5f);
+        p.line(x + INV_DECK_X, y + INV_SECTION_Y + 12,
+                x + INV_DECK_X + 160, y + INV_SECTION_Y + 12);
+        p.line(x + INV_PACK_X, y + INV_SECTION_Y + 12,
+                x + INVENTORY_W - 50, y + INV_SECTION_Y + 12);
+        p.strokeWeight(1);
 
         // Equipped deck
         CardDefinition[] equipped = inventory.getEquippedCards();
         for (int i = 0; i < equipped.length; i++) {
-            int cardX = x + INV_DECK_X + (i % 2) * INV_DECK_CARD_COL_W;
-            int cardY = y + INV_DECK_CARD_START_Y + (i / 2) * INV_DECK_CARD_ROW_H;
-            drawSmallCard(p, equipped[i], cardX, cardY, INV_DECK_CARD_W, INV_DECK_CARD_H);
-
+            int cx = x + INV_DECK_X + (i % 2) * INV_DECK_COL_W;
+            int cy = y + INV_DECK_START_Y + (i / 2) * INV_DECK_ROW_H;
+            drawSmallCard(p, equipped[i], cx, cy, INV_DECK_W, INV_DECK_H);
             if (i == inventory.getSelectedSlot()) {
                 p.noFill();
-                p.stroke(COLOR_SELECTED_R, COLOR_SELECTED_G, COLOR_SELECTED_B);
-                p.rect(cardX - INV_SELECT_BORDER, cardY - INV_SELECT_BORDER,
-                        INV_DECK_CARD_W + INV_SELECT_BORDER * 2,
-                        INV_DECK_CARD_H + INV_SELECT_BORDER * 2, BTN_RADIUS);
+                p.stroke(C_SEL_R, C_SEL_G, C_SEL_B);
+                p.strokeWeight(2.5f);
+                p.rect(cx - INV_SELECT_BORDER, cy - INV_SELECT_BORDER,
+                        INV_DECK_W + INV_SELECT_BORDER * 2,
+                        INV_DECK_H + INV_SELECT_BORDER * 2, CARD_RADIUS);
+                p.strokeWeight(1);
             }
         }
 
         // Backpack
         List<CardDefinition> backpack = inventory.getBackpackCards();
-        int visibleSlots = INV_PACK_COLS * INV_PACK_VISIBLE_ROWS;
-
-        for (int i = 0; i < visibleSlots; i++) {
-            int cardIndex = inventoryScroll * INV_PACK_COLS + i;
-            if (cardIndex >= backpack.size()) break;
-
-            int cardX = x + INV_PACK_X + (i % INV_PACK_COLS) * INV_PACK_CARD_COL_W;
-            int cardY = y + INV_PACK_CARD_START_Y + (i / INV_PACK_COLS) * INV_PACK_CARD_ROW_H;
-            drawSmallCard(p, backpack.get(cardIndex), cardX, cardY, INV_PACK_CARD_W, INV_PACK_CARD_H);
+        int visible = INV_PACK_COLS * INV_PACK_ROWS;
+        for (int i = 0; i < visible; i++) {
+            int idx = inventoryScroll * INV_PACK_COLS + i;
+            if (idx >= backpack.size()) break;
+            int cx = x + INV_PACK_X + (i % INV_PACK_COLS) * INV_PACK_COL_W;
+            int cy = y + INV_PACK_START_Y + (i / INV_PACK_COLS) * INV_PACK_ROW_H;
+            drawSmallCard(p, backpack.get(idx), cx, cy, INV_PACK_W, INV_PACK_H);
         }
 
-        drawScrollBar(p,
-                x + INVENTORY_W - INV_SCROLLBAR_OFFSET_X,
-                y + INV_SCROLLBAR_PAD_TOP,
-                INVENTORY_H - INV_SCROLLBAR_PAD_BOT,
-                maxInventoryScroll(), inventoryScroll);
-
-        drawCheatSheets(p, x + INV_PACK_X, y + 310);
+        drawScrollBar(p, x + INVENTORY_W - INV_SCROLL_X_OFF, y + INV_SCROLL_PAD_TOP,
+                INVENTORY_H - INV_SCROLL_PAD_BOT, maxPackScroll(), inventoryScroll);
     }
+
+    // ── Draw: settings window ─────────────────────────────────────────────────
 
     private void drawSettingsWindow(PApplet p) {
-        int x = centeredX(SETTINGS_W);
-        int y = centeredY(SETTINGS_H);
-
-        drawWindowShell(p, "Settings", x, y, SETTINGS_W, SETTINGS_H);
-        drawScrollBar(p, x + SETTINGS_W - 32, y + 58, SETTINGS_H - 84, 1, 0);
+        int x = cx(SETTINGS_W), y = cy(SETTINGS_H);
+        drawWindowShell(p, "⚙  Settings", x, y, SETTINGS_W, SETTINGS_H);
+        p.fill(C_TEXT_SOFT); useFont(p, 13);
+        p.textAlign(PApplet.LEFT, PApplet.CENTER);
+        p.text("(Nothing to configure yet!)", x + 20, y + 100);
     }
 
-    // ── Click handlers ───────────────────────────────────────────────────────
+    // ── Click handlers ────────────────────────────────────────────────────────
 
     private boolean handleTradeClick(int mx, int my) {
-        int x = centeredX(TRADE_W);
-        int y = centeredY(TRADE_H);
-
+        int x = cx(TRADE_W), y = cy(TRADE_H);
         if (handleClose(mx, my, x, y, TRADE_W)) return true;
-
         if (inside(mx, my, x + TRADE_LEGEND_X, y + TRADE_BTN_Y, TRADE_BTN_W, TRADE_BTN_H)) {
             CardDefinition pulled = inventory.buyRandomCard();
-            if (pulled != null) {
-                tradeMessage = "You got " + pulled.name + "! (" + pulled.rarity + ") [" + pulled.subject + "]";
-            } else {
-                tradeMessage = "Not enough gumballs.";
-            }
+            tradeMessage = pulled != null
+                    ? "Got: " + pulled.name + " (" + pulled.rarity + ")  [" + pulled.subject + "]"
+                    : "Not enough gumballs!";
             return true;
         }
-
         return false;
     }
 
     private boolean handleInventoryClick(int mx, int my) {
-        int x = centeredX(INVENTORY_W);
-        int y = centeredY(INVENTORY_H);
-
+        int x = cx(INVENTORY_W), y = cy(INVENTORY_H);
         if (handleClose(mx, my, x, y, INVENTORY_W)) return true;
 
         for (int i = 0; i < inventory.getEquippedCards().length; i++) {
-            int cardX = x + INV_DECK_X + (i % 2) * INV_DECK_CARD_COL_W;
-            int cardY = y + INV_DECK_CARD_START_Y + (i / 2) * INV_DECK_CARD_ROW_H;
-            if (inside(mx, my, cardX, cardY, INV_DECK_CARD_W, INV_DECK_CARD_H)) {
-                inventory.selectSlot(i);
-                return true;
+            int cx = x + INV_DECK_X + (i % 2) * INV_DECK_COL_W;
+            int cy = y + INV_DECK_START_Y + (i / 2) * INV_DECK_ROW_H;
+            if (inside(mx, my, cx, cy, INV_DECK_W, INV_DECK_H)) {
+                inventory.selectSlot(i); return true;
             }
         }
 
         List<CardDefinition> backpack = inventory.getBackpackCards();
-        int visibleSlots = INV_PACK_COLS * INV_PACK_VISIBLE_ROWS;
-
-        for (int i = 0; i < visibleSlots; i++) {
-            int cardIndex = inventoryScroll * INV_PACK_COLS + i;
-            if (cardIndex >= backpack.size()) break;
-
-            int cardX = x + INV_PACK_X + (i % INV_PACK_COLS) * INV_PACK_CARD_COL_W;
-            int cardY = y + INV_PACK_CARD_START_Y + (i / INV_PACK_COLS) * INV_PACK_CARD_ROW_H;
-            if (inside(mx, my, cardX, cardY, INV_PACK_CARD_W, INV_PACK_CARD_H)) {
-                inventory.swapWithBackpack(cardIndex);
-                return true;
+        for (int i = 0; i < INV_PACK_COLS * INV_PACK_ROWS; i++) {
+            int idx = inventoryScroll * INV_PACK_COLS + i;
+            if (idx >= backpack.size()) break;
+            int cx = x + INV_PACK_X + (i % INV_PACK_COLS) * INV_PACK_COL_W;
+            int cy = y + INV_PACK_START_Y + (i / INV_PACK_COLS) * INV_PACK_ROW_H;
+            if (inside(mx, my, cx, cy, INV_PACK_W, INV_PACK_H)) {
+                inventory.swapWithBackpack(idx); return true;
             }
         }
-
         return false;
     }
 
     private boolean handleSettingsClick(int mx, int my) {
-        int x = centeredX(SETTINGS_W);
-        int y = centeredY(SETTINGS_H);
-        return handleClose(mx, my, x, y, SETTINGS_W);
+        return handleClose(mx, my, cx(SETTINGS_W), cy(SETTINGS_H), SETTINGS_W);
     }
 
     private boolean handleClose(int mx, int my, int x, int y, int w) {
-        if (inside(mx, my, x + w - WINDOW_CLOSE_MARGIN, y + WINDOW_CLOSE_PAD, WINDOW_CLOSE_SIZE, WINDOW_CLOSE_SIZE)) {
-            activeWindow = Window.NONE;
-            return true;
+        if (inside(mx, my, x + w - WIN_CLOSE_MARGIN, y + WIN_CLOSE_PAD, WIN_CLOSE_SIZE, WIN_CLOSE_SIZE)) {
+            activeWindow = Window.NONE; return true;
         }
         return false;
     }
 
-    // ── Draw: primitives ─────────────────────────────────────────────────────
+    // ── Draw primitives ───────────────────────────────────────────────────────
 
     private void drawWindowShell(PApplet p, String title, int x, int y, int w, int h) {
-        p.fill(255);
-        p.stroke(COLOR_WIN_STROKE);
-        p.rect(x, y, w, h, 6);
+        // Shadow
+        p.fill(0, 0, 0, 30); p.noStroke();
+        p.rect(x + 5, y + 5, w, h, 10);
 
-        p.fill(COLOR_TEXT_DARK);
-        p.textAlign(PApplet.LEFT, PApplet.CENTER);
-        p.textSize(WINDOW_TITLE_SIZE);
-        p.text(title, x + WINDOW_TITLE_X, y + WINDOW_TITLE_Y);
-
-        p.stroke(COLOR_TEXT_DARK);
-        p.strokeWeight(WINDOW_CLOSE_STROKE);
-        p.line(x + w - 36, y + 17, x + w - 14, y + 39);
-        p.line(x + w - 14, y + 17, x + w - 36, y + 39);
+        // Window body
+        p.fill(C_BG); p.stroke(C_WIN_STR); p.strokeWeight(1.5f);
+        p.rect(x, y, w, h, 8);
         p.strokeWeight(1);
+
+        // Title bar
+        p.fill(C_ACCENT); p.noStroke();
+        p.rect(x, y, w, 46, 8, 8, 0, 0);
+
+        // Title text
+        p.fill(255); useFont(p, WIN_TITLE_SIZE);
+        p.textAlign(PApplet.LEFT, PApplet.CENTER);
+        p.text(title, x + WIN_TITLE_X, y + WIN_TITLE_Y);
+
+        // Close button
+        p.fill(255, 80, 80); p.noStroke();
+        p.ellipse(x + w - 22, y + 22, 18, 18);
+        p.fill(255); useFont(p, 12);
+        p.textAlign(PApplet.CENTER, PApplet.CENTER);
+        p.text("✕", x + w - 22, y + 22);
     }
 
-    private void drawScrollBar(PApplet p, int x, int y, int h, int maxScroll, int currentScroll) {
-        p.fill(COLOR_SCROLLBAR_BG);
-        p.stroke(90);
-        p.rect(x, y, SCROLLBAR_W, h, SCROLLBAR_RADIUS);
-
-        float thumbH = maxScroll == 0 ? h : Math.max(SCROLLBAR_THUMB_MIN, h / (maxScroll + 1f));
-        float travel = h - thumbH;
-        float thumbY = maxScroll == 0 ? y : y + travel * (currentScroll / (float) maxScroll);
-
-        p.fill(COLOR_SCROLLBAR_FG);
-        p.rect(x + 2, thumbY + 2, SCROLLBAR_W - 4, thumbH - 4, SCROLLBAR_RADIUS);
+    private void drawScrollBar(PApplet p, int x, int y, int h, int max, int cur) {
+        p.fill(C_SCROLL_BG); p.stroke(140); p.rect(x, y, SCROLLBAR_W, h, SCROLLBAR_R);
+        float th = max == 0 ? h : Math.max(SCROLLBAR_MIN, h / (max + 1f));
+        float ty = max == 0 ? y : y + (h - th) * (cur / (float) max);
+        p.fill(C_SCROLL_FG); p.noStroke();
+        p.rect(x + 2, ty + 2, SCROLLBAR_W - 4, th - 4, SCROLLBAR_R);
     }
 
     private void drawButton(PApplet p, String text, int x, int y, int w, int h) {
-        p.fill(COLOR_BTN_FILL);
-        p.stroke(COLOR_BTN_STROKE);
-        p.rect(x, y, w, h, BTN_RADIUS);
-
-        p.fill(0);
+        p.fill(C_BTN_FILL); p.stroke(C_BTN_STR); p.strokeWeight(1.5f);
+        p.rect(x, y, w, h, 6);
+        p.strokeWeight(1);
+        p.fill(C_ACCENT); useFont(p, 15);
         p.textAlign(PApplet.CENTER, PApplet.CENTER);
-        p.textSize(BTN_TEXT_SIZE);
         p.text(text, x + w / 2f, y + h / 2f);
     }
 
     private void drawSmallCard(PApplet p, CardDefinition card, int x, int y, int w, int h) {
         if (card == null) {
-            p.fill(225);
-            p.stroke(150);
-            p.rect(x, y, w, h, CARD_STRIP_RADIUS);
+            p.fill(225); p.stroke(C_CARD_STR); p.rect(x, y, w, h, CARD_RADIUS);
             return;
         }
-
         // White body
-        p.fill(255);
-        p.stroke(COLOR_CARD_STROKE);
-        p.strokeWeight(1);
-        p.rect(x, y, w, h, CARD_STRIP_RADIUS);
+        p.fill(255, 253, 248); p.stroke(C_CARD_STR); p.strokeWeight(1);
+        p.rect(x, y, w, h, CARD_RADIUS);
 
-        // Colored rarity strip on top
-        p.fill(card.strokeColor);
-        p.noStroke();
-        p.rect(x + 1, y + 1, w - 2, CARD_STRIP_H, CARD_STRIP_RADIUS, CARD_STRIP_RADIUS, 0, 0);
+        // Rarity strip
+        p.fill(card.strokeColor); p.noStroke();
+        p.rect(x + 1, y + 1, w - 2, CARD_STRIP_H, CARD_RADIUS, CARD_RADIUS, 0, 0);
 
         // Name
-        p.fill(COLOR_TEXT_DARK);
+        p.fill(C_TEXT); useFont(p, CARD_NAME_SIZE);
         p.textAlign(PApplet.CENTER, PApplet.CENTER);
-        p.textSize(CARD_NAME_SIZE);
         p.text(card.name, x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_NAME_POS);
 
         // Subject
-        p.fill(COLOR_TEXT_GREY);
-        p.textSize(CARD_SUBJ_SIZE);
+        p.fill(C_TEXT_SOFT); useFont(p, CARD_SUBJ_SIZE);
         p.text(card.subject, x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_SUBJ_POS);
 
         // Damage
-        p.fill(COLOR_TEXT_DARK);
-        p.textSize(CARD_DMG_SIZE);
+        p.fill(C_TEXT); useFont(p, CARD_DMG_SIZE);
         p.text(card.damage + " dmg", x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_DMG_POS);
     }
 
-    private void drawCheatSheets(PApplet p, int x, int y) {
-        p.fill(COLOR_TEXT_MED);
-        p.textAlign(PApplet.LEFT, PApplet.CENTER);
-        p.textSize(15);
-        p.text("Cheat Sheets", x, y);
+    // ── Utilities ─────────────────────────────────────────────────────────────
 
-        List<CheatSheetDefinition> sheets = inventory.getCheatSheets();
-        if (sheets.isEmpty()) {
-            p.fill(COLOR_TEXT_GREY);
-            p.textSize(12);
-            p.text("None", x, y + 24);
-            return;
-        }
-
-        // Card dimensions matching the backpack cards
-        int cw = INV_PACK_CARD_W;
-        int ch = INV_PACK_CARD_H;
-        int colW = INV_PACK_CARD_COL_W;
-        int rowH = INV_PACK_CARD_ROW_H;
-
-        for (int i = 0; i < sheets.size(); i++) {
-            int cardX = x + (i % INV_PACK_COLS) * colW;
-            int cardY = y + 20 + (i / INV_PACK_COLS) * rowH;
-            drawSmallCheatSheet(p, sheets.get(i), cardX, cardY, cw, ch);
-        }
+    private void ensureFont(PApplet p) {
+        if (font == null) font = p.createFont("Comic Sans MS", 14, true);
     }
 
-    private void drawSmallCheatSheet(PApplet p, CheatSheetDefinition sheet, int x, int y, int w, int h) {
-        // White body with colored top strip — same style as knowledge cards
-        p.fill(255);
-        p.stroke(COLOR_CARD_STROKE);
-        p.strokeWeight(1);
-        p.rect(x, y, w, h, CARD_STRIP_RADIUS);
-
-        // Colored accent strip at top using the sheet's fill color
-        p.fill(sheet.fillColor);
-        p.noStroke();
-        p.rect(x + 1, y + 1, w - 2, CARD_STRIP_H, CARD_STRIP_RADIUS, CARD_STRIP_RADIUS, 0, 0);
-
-        // Name (where card name sits)
-        p.fill(COLOR_TEXT_DARK);
-        p.textAlign(PApplet.CENTER, PApplet.CENTER);
-        p.textSize(CARD_NAME_SIZE);
-        p.text(sheet.name, x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_NAME_POS);
-
-        // Thin divider line
-        p.stroke(215);
-        p.line(x + 6, y + h * 0.52f, x + w - 6, y + h * 0.52f);
-
-        // Description (where damage/subject sits)
-        p.fill(COLOR_TEXT_GREY);
-        p.textSize(9);
-        p.text(sheet.description, x + 5, y + CARD_STRIP_H + (h - CARD_STRIP_H) * 0.76f, w - 10, h * 0.30f);
+    private void useFont(PApplet p, int size) {
+        p.textFont(font); p.textSize(size);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
+    private int cx(int w) { return (screenW - w) / 2; }
+    private int cy(int h) { return (screenH - h) / 2; }
 
-    private int centeredX(int width)  { return (screenW - width)  / 2; }
-    private int centeredY(int height) { return (screenH - height) / 2; }
-
-    private int maxInventoryScroll() {
+    private int maxPackScroll() {
         int rows = (int) Math.ceil(inventory.getBackpackCards().size() / (double) INV_PACK_COLS);
-        return Math.max(0, rows - INV_PACK_VISIBLE_ROWS);
+        return Math.max(0, rows - INV_PACK_ROWS);
     }
 
     private boolean inside(int mx, int my, int x, int y, int w, int h) {
