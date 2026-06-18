@@ -13,8 +13,8 @@ public class GameMap {
     private static final int    GROUND_Y           = 500;
     private static final int    CHUNK_W            = 900;
     private static final String SAVE_FILE          = "data/generated_map.csv";
-    private static final String MAP_VERSION        = "9";
-    private static final int    SCHOOL_START_CHUNK = 4;
+    private static final String MAP_VERSION        = "10"; // bumped: math-test door is now guaranteed to spawn
+    private static final int    SCHOOL_START_CHUNK = 3;
 
     // ── Terrain ───────────────────────────────────────────────────────────────
     private static final int   TERR_MIN_W  = 180;
@@ -50,7 +50,7 @@ public class GameMap {
     private static final float SCHOOL_ENTRY_FADE     = 120f;
 
     // ── Fightable NPCs ────────────────────────────────────────────────────────
-    private static final int FIGHT_NPCS_PER_CHUNK = 3;
+    private static final int FIGHT_NPCS_PER_CHUNK = 1;
     private static final int FIGHT_NPC_H          = 140;
 
     // ── Enemy types ───────────────────────────────────────────────────────────
@@ -247,6 +247,25 @@ public class GameMap {
         return storyNpcs.isEmpty() ? null : storyNpcs.get(0).name;
     }
 
+    /**
+     * Returns the world-space position {x, y} of whatever the player should
+     * currently go find — the active story NPC, or the math-test door during
+     * that specific step — or null if there's nothing to point to right now
+     * (e.g. the story is complete, or the target NPC was already defeated).
+     * Main.java uses this to draw a screen-edge pointer when the target is
+     * far enough away that it isn't on screen yet.
+     */
+    public float[] getQuestTargetWorldPos() {
+        if (storyProgression == 1) {
+            if (mathTestDoor == null) return null;
+            return new float[]{ mathTestDoor.x + mathTestDoor.w / 2f, mathTestDoor.y };
+        }
+        for (StoryNpc npc : storyNpcs) {
+            if (!npc.defeated) return new float[]{ npc.x, npc.y };
+        }
+        return null;
+    }
+
     // ── Chunk generation ──────────────────────────────────────────────────────
 
     private void generateChunkIfNeeded(int chunk) {
@@ -400,6 +419,7 @@ public class GameMap {
 
         // Floor props
         float cursor = startX + 55 + rng.nextInt(50);
+        boolean firstSlot = true;
         while (cursor < startX + CHUNK_W - 80) {
             float choice = rng.nextFloat();
             PropType type;
@@ -407,7 +427,17 @@ public class GameMap {
             float h;
             int imgIdx  = 0;
 
-            if (choice < 0.40f) {
+            // The math-test door is critical to the story's first quest, so guarantee it
+            // spawns on the very first floor-prop slot of the first school chunk rather
+            // than leaving it to the normal ~18% random roll below (which could, and did,
+            // sometimes produce zero doors in that chunk, leaving the quest unfindable).
+            boolean forceDoor = firstSlot && chunk == SCHOOL_START_CHUNK && mathTestDoor == null;
+            firstSlot = false;
+
+            if (forceDoor) {
+                type = PropType.DOOR;
+                h    = SCHOOL_DOOR_H;
+            } else if (choice < 0.40f) {
                 type   = PropType.LOCKER;
                 imgIdx = rng.nextInt(Math.max(1, assets.lockers.length));
                 img    = safeImage(assets.lockers, imgIdx);
@@ -439,8 +469,21 @@ public class GameMap {
                 }
                 cursor += w + 55 + rng.nextInt(80);
             } else {
+                // Didn't fit at this cursor position (forced door or otherwise) — nudge
+                // forward and retry on the next slot. If this was the forced door,
+                // mathTestDoor stays null so forceDoor triggers again immediately.
                 cursor += 65;
             }
+        }
+
+        // Safety net: chunk ran out of room before the forced door could be placed at all
+        // (pathologically tight window spacing). Place it directly, ignoring overlap rules,
+        // so the quest is never unsolvable.
+        if (chunk == SCHOOL_START_CHUNK && mathTestDoor == null) {
+            float x = startX + 60;
+            float y = SCHOOL_FLOOR_Y - SCHOOL_DOOR_H;
+            props.add(new Prop(chunk, PropType.DOOR, x, y, 100, SCHOOL_DOOR_H, 0));
+            mathTestDoor = props.get(props.size() - 1);
         }
     }
 
@@ -758,8 +801,10 @@ public class GameMap {
         }
     }
 
-    /** Draw a pulsing arrow above the designated math-test door. */
+    /** Draw a pulsing arrow above the designated math-test door (only while quest is active). */
     private void drawMathTestArrow(float camX, int scrW) {
+        // Hide arrow once the math-door quest step is past (storyProgression > 1 means beaten)
+        if (storyProgression != 1) return;
         if (mathTestDoor == null) return;
         if (!visible(mathTestDoor.x, mathTestDoor.w, camX, scrW)) return;
 
@@ -778,6 +823,19 @@ public class GameMap {
         app.fill(30);
         app.textAlign(PApplet.CENTER, PApplet.BOTTOM);
         app.text("Math Test", cx, arrowTip - 22);
+    }
+
+    /** Draw a pulsing bouncing blue arrow above a story-NPC to indicate it is the current quest target. */
+    private void drawQuestArrow(float worldX, float worldTopY) {
+        float pulse   = 0.5f + 0.5f * PApplet.sin(app.frameCount * 0.10f);
+        float arrowTip = worldTopY - 8 - pulse * 9;
+        app.noStroke();
+        app.fill(80, 180, 255, 220);
+        app.triangle(worldX - 11, arrowTip - 16, worldX + 11, arrowTip - 16, worldX, arrowTip);
+        useFont(12);
+        app.fill(20);
+        app.textAlign(PApplet.CENTER, PApplet.BOTTOM);
+        app.text("!", worldX, arrowTip - 18);
     }
 
     private void drawSchoolNpcs(float camX, int scrW) {
@@ -862,6 +920,9 @@ public class GameMap {
                 app.stroke(60);
                 app.rect(drawX, drawY, w, h, 5);
             }
+
+            // Quest arrow above this story NPC (it is the active target by definition)
+            drawQuestArrow(npc.x, drawY);
 
             useFont(12);
             app.fill(30);

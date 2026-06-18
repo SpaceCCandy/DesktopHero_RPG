@@ -1,8 +1,10 @@
 package ui;
 
+import game.AssetManager;
 import game.GameMap;
 import processing.core.PApplet;
 import processing.core.PFont;
+import processing.core.PImage;
 import rpg.CardDefinition;
 import rpg.CardInventory;
 
@@ -19,7 +21,14 @@ public class BattleScreen {
     private static final int CARD_W  = 115, CARD_H = 80, CARD_GAP = 10;
     private static final int CARDS_START_X = 90, CARDS_Y = 435;
 
+    // Cheat Sheet button — bottom-right corner of the panel, clear of the
+    // message box above and the attack cards/skip button to its left.
+    private static final int CHEAT_BTN_W = 145, CHEAT_BTN_H = 40, CHEAT_BTN_MARGIN = 15;
+    private static final int CHEAT_BTN_X = PANEL_X + PANEL_W - CHEAT_BTN_W - CHEAT_BTN_MARGIN;
+    private static final int CHEAT_BTN_Y = PANEL_Y + PANEL_H - CHEAT_BTN_H - CHEAT_BTN_MARGIN;
+
     private final CardInventory inventory;
+    private AssetManager assets;
     private PFont font;
 
     private int    playerHealth;
@@ -30,11 +39,15 @@ public class BattleScreen {
     private String enemyName = "Enemy";
     private Result result;
     private GameMap.EnemyType enemyType;
+    private String enemySpriteId; // optional override: shows the exact NPC sprite fought
+    private boolean cheatUsedThisTurn = false;  // resets each turn
 
     public BattleScreen(CardInventory inventory) {
         this.inventory = inventory;
         reset();
     }
+
+    public void setAssets(AssetManager assets) { this.assets = assets; }
 
     public void reset() { reset(100, GameMap.EnemyType.GEEK); }
 
@@ -46,12 +59,23 @@ public class BattleScreen {
         this.enemyMaxHealth = enemyMaxHealth;
         enemyHealth    = enemyMaxHealth;
         enemyType      = type;
+        enemySpriteId  = null; // cleared by default; set explicitly for story/named NPCs
         message        = "Choose an attack!";
         result         = Result.NONE;
+        cheatUsedThisTurn = false;
     }
 
     /** Override the enemy display name (e.g. "Math Test"). */
     public void setEnemyName(String name) { this.enemyName = name; }
+
+    /**
+     * Override which sprite is shown for the enemy in battle, using the same
+     * spriteId keys as AssetManager.storySprite (e.g. "mathtest", "rico",
+     * "stacey"). When set, this takes priority over the generic GEEK/ACE/JOCK
+     * sprite so the battle screen always matches the NPC the player just
+     * interacted with. Pass null to fall back to the generic type sprite.
+     */
+    public void setEnemySpriteId(String spriteId) { this.enemySpriteId = spriteId; }
 
     public void showGumballReward(int amount) {
         message = "You won! +" + amount + " gumballs!  Heading back...";
@@ -116,10 +140,20 @@ public class BattleScreen {
 
         // Skip button
         drawSkipButton(p, CARDS_START_X + cards.length * (CARD_W + CARD_GAP) + 12, CARDS_Y);
+
+        // Cheat Sheet button (only if available and not yet used this turn)
+        if (inventory instanceof rpg.CardInventory) {
+            drawCheatSheetButton(p, CHEAT_BTN_X, CHEAT_BTN_Y);
+        }
     }
 
     public void mousePressed(int mx, int my) {
         if (result != Result.NONE) return;
+        // Cheat Sheet button (bottom-right corner of the panel)
+        if (inside(mx, my, CHEAT_BTN_X, CHEAT_BTN_Y, CHEAT_BTN_W, CHEAT_BTN_H)) {
+            useCheatSheet();
+            return;
+        }
         CardDefinition[] cards = inventory.getEquippedCards();
         for (int i = 0; i < cards.length; i++) {
             int x = CARDS_START_X + i * (CARD_W + CARD_GAP);
@@ -162,6 +196,7 @@ public class BattleScreen {
     }
 
     private void enemyAttack(int energyGain, String prefix) {
+        cheatUsedThisTurn = false;  // new player turn starts after enemy attacks
         energy = Math.min(MAX_ENERGY, energy + energyGain);
         int dmg = 14 + (int)(Math.random() * 13);
         playerHealth -= dmg;
@@ -182,6 +217,37 @@ public class BattleScreen {
         if (enemyType == GameMap.EnemyType.JOCK)
             return card.subject.equals("Gym");
         return false;
+    }
+
+    // ── Cheat sheet logic ────────────────────────────────────────────────────────
+
+    private void useCheatSheet() {
+        if (cheatUsedThisTurn) { message = "Already used a cheat sheet this turn!"; return; }
+        java.util.List<rpg.CheatSheetDefinition> sheets = inventory.getCheatSheets();
+        if (sheets.isEmpty()) { message = "No cheat sheets in your backpack!"; return; }
+        // Pick a random sheet from what the player owns
+        int idx = (int)(Math.random() * sheets.size());
+        rpg.CheatSheetDefinition sheet = inventory.useCheatSheet(idx);
+        if (sheet == null) return;
+        cheatUsedThisTurn = true;
+        // Apply effect based on sheet
+        if ("Extra Time".equals(sheet.name)) {
+            energy = Math.min(MAX_ENERGY, energy + 35);
+            message = "Cheat Sheet: Extra Time! +35 energy.";
+        } else if ("Process of Elimination".equals(sheet.name)) {
+            enemyHealth = Math.max(0, enemyHealth - 30);
+            message = "Cheat Sheet: Process of Elimination! Dealt 30 damage.";
+            if (enemyHealth == 0) { message += "  You won!"; result = Result.PLAYER_WON; }
+        } else if ("Curve".equals(sheet.name)) {
+            playerHealth = Math.min(PLAYER_MAX_HEALTH, playerHealth + 30);
+            message = "Cheat Sheet: Curve! Healed 30 HP.";
+        } else {
+            // Generic random effect for any future sheets
+            int roll = (int)(Math.random() * 3);
+            if (roll == 0) { energy = Math.min(MAX_ENERGY, energy + 35); message = "Cheat Sheet: +35 energy!"; }
+            else if (roll == 1) { enemyHealth = Math.max(0, enemyHealth - 30); message = "Cheat Sheet: 30 damage!"; }
+            else { playerHealth = Math.min(PLAYER_MAX_HEALTH, playerHealth + 30); message = "Cheat Sheet: +30 HP!"; }
+        }
     }
 
     // ── Draw helpers ──────────────────────────────────────────────────────────
@@ -219,14 +285,60 @@ public class BattleScreen {
     }
 
     private void drawFighter(PApplet p, int x, int y, boolean enemy) {
-        p.noFill(); p.stroke(enemy ? 0xFF883030 : 0xFF305088);
-        p.strokeWeight(4);
-        p.ellipse(x, y - 72, 46, 46);
-        p.line(x, y - 48, x, y + 20);
-        p.line(x - 44, y - 25, x + 44, y - 25);
-        p.line(x, y + 20, x - 28, y + 62);
-        p.line(x, y + 20, x + 28, y + 62);
+        PImage sprite = null;
+        if (assets != null) {
+            if (enemy) {
+                // Prefer the exact NPC sprite (e.g. the math test, Rico, Stacey) when one
+                // was supplied; otherwise fall back to the generic Geek/Ace/Jock sprite.
+                sprite = (enemySpriteId != null) ? assets.storySprite(enemySpriteId)
+                        : assets.spriteForType(enemyType);
+            } else {
+                sprite = assets.playerIdle;
+            }
+        }
+        if (sprite != null && sprite.width > 0 && sprite.height > 0) {
+            int sprH = 130;
+            int sprW = (int)(sprH * sprite.width / (float) sprite.height);
+            if (!enemy) {
+                p.image(sprite, x - sprW / 2f, y - sprH, sprW, sprH);
+            } else {
+                p.pushMatrix();
+                p.translate(x + sprW / 2f, y - sprH);
+                p.scale(-1, 1);
+                p.image(sprite, 0, 0, sprW, sprH);
+                p.popMatrix();
+            }
+        } else {
+            // Fallback stick figure
+            p.noFill(); p.stroke(enemy ? 0xFF883030 : 0xFF305088);
+            p.strokeWeight(4);
+            p.ellipse(x, y - 72, 46, 46);
+            p.line(x, y - 48, x, y + 20);
+            p.line(x - 44, y - 25, x + 44, y - 25);
+            p.line(x, y + 20, x - 28, y + 62);
+            p.line(x, y + 20, x + 28, y + 62);
+            p.strokeWeight(1);
+        }
+    }
+
+    private void drawCheatSheetButton(PApplet p, int x, int y) {
+        java.util.List<rpg.CheatSheetDefinition> sheets = inventory.getCheatSheets();
+        boolean hasSheets = !sheets.isEmpty();
+        boolean canUse    = hasSheets && !cheatUsedThisTurn && result == Result.NONE;
+
+        p.fill(canUse ? 0xFFFFF8C2 : 0xFFDDD8C0);
+        p.stroke(canUse ? 0xFFBBA820 : 0xFF999080);
+        p.strokeWeight(1.5f);
+        p.rect(x, y, CHEAT_BTN_W, CHEAT_BTN_H, 6);
         p.strokeWeight(1);
+
+        p.fill(canUse ? 0xFF5A4800 : 0xFF888070);
+        p.textFont(font); p.textSize(12);
+        p.textAlign(PApplet.CENTER, PApplet.CENTER);
+        String label = hasSheets
+                ? (cheatUsedThisTurn ? "Cheat Used ✓" : "📋 Use Cheat (" + sheets.size() + ")")
+                : "No Cheat Sheets";
+        p.text(label, x + CHEAT_BTN_W / 2f, y + CHEAT_BTN_H / 2f);
     }
 
     private void drawCard(PApplet p, CardDefinition card, int x, int y) {

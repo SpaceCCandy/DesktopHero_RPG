@@ -2,6 +2,7 @@ import game.AssetManager;
 import game.Camera;
 import game.GameMap;
 import game.Player;
+import game.SoundManager;
 import processing.core.PApplet;
 import processing.event.MouseEvent;
 import rpg.CardDefinition;
@@ -32,7 +33,9 @@ public class Main extends PApplet {
     private int battleEndFrames;
     private int lastFrameMillis;
     private int storyProgression;
+    private boolean tradingUnlocked;
     private GameState gameState;
+    private SoundManager sound;
 
     public static void main(String[] args) {
         PApplet.main("Main");
@@ -53,26 +56,34 @@ public class Main extends PApplet {
         gameMap = new GameMap(this, assets);
         menu = new MenuScreen(cardInventory);
         battleScreen = new BattleScreen(cardInventory);
+        battleScreen.setAssets(assets);
         dialogOverlay = new DialogOverlay();
-        storyProgression = loadStoryProgression();
+        loadStoryProgression();
         gameMap.setStoryProgression(storyProgression);
+        menu.setTradingUnlocked(tradingUnlocked);
+        sound = new SoundManager(this);
+        menu.setSound(sound);
+        sound.startMusic();
         lastFrameMillis = millis();
     }
 
     @Override
     public void draw() {
+        // If current state is battling, show the battle menu
         if (gameState == GameState.BATTLE) {
             battleScreen.draw(this);
             finishBattleAfterDelay();
             return;
         }
 
+        // If current state is dialog, pause the world update, and show the dialog screen
         if (gameState == GameState.DIALOG) {
             drawGameWorld(false);
             dialogOverlay.draw(this);
             return;
         }
 
+        // If nothing, just load movements, and map gen
         if (gameState != GameState.GAME) return;
         drawGameWorld(true);
     }
@@ -103,9 +114,53 @@ public class Main extends PApplet {
         gameMap.renderInFrontOfPlayer(camera.getX(), width, player);
         popMatrix();
 
+        drawQuestTargetPointer(worldZoom);
         gameMap.drawInteractionPrompt(player);
         drawQuestPanel();
         menu.draw(this);
+    }
+
+    /**
+     * Draws a pulsing arrow at the left or right edge of the screen pointing
+     * toward the current quest target (the next story NPC, or the math-test
+     * door) whenever that target exists but isn't visible on screen yet. This
+     * helps players who are several screens away from their next objective
+     * find the right direction to walk, instead of wandering randomly through
+     * the school.
+     */
+    private void drawQuestTargetPointer(float worldZoom) {
+        if (gameState != GameState.GAME) return;
+        float[] target = gameMap.getQuestTargetWorldPos();
+        if (target == null) return;
+
+        // Same transform chain used to render the world, applied to a single point,
+        // so the pointer lines up correctly regardless of camera position or zoom.
+        float screenX = width / 2f + (target[0] - camera.getX() - width / 2f) * worldZoom;
+
+        float margin = 36;
+        boolean offLeft  = screenX < margin;
+        boolean offRight = screenX > width - margin;
+        if (!offLeft && !offRight) return; // already visible on screen — the in-world arrow handles it
+
+        float arrowY = 300;
+        float pulse = 0.5f + 0.5f * sin(frameCount * 0.1f);
+        float edgeX = offLeft ? margin : width - margin;
+        float dir = offLeft ? -1 : 1;
+        float tipX = edgeX + dir * pulse * 6;
+
+        pushStyle();
+        noStroke();
+        fill(80, 180, 255, 230);
+        triangle(tipX, arrowY, tipX - dir * 22, arrowY - 14, tipX - dir * 22, arrowY + 14);
+        fill(30);
+        textAlign(CENTER, CENTER);
+        textSize(12);
+        text("Next: " + questTargetLabel(), edgeX - dir * 30, arrowY + 30);
+        popStyle();
+    }
+
+    private String questTargetLabel() {
+        return storyEvent(storyProgression).battleName;
     }
 
     @Override
@@ -118,7 +173,9 @@ public class Main extends PApplet {
         }
         if (key == 'a' || key == 'A') player.moveLeft = true;
         if (key == 'd' || key == 'D') player.moveRight = true;
-        if (key == 'w' || key == 'W') player.jump();
+        if (key == 'w' || key == 'W') {
+            if (player.jump()) sound.playJump();
+        }
     }
 
     @Override
@@ -143,7 +200,18 @@ public class Main extends PApplet {
     }
 
     public void mouseWheel(MouseEvent event) {
-        menu.mouseWheel(event.getCount());
+        menu.mouseWheel(event.getCount(), mouseX, mouseY);
+    }
+
+    @Override
+    public void mouseDragged() {
+        if (gameState != GameState.GAME && gameState != GameState.DIALOG) return;
+        menu.mouseDragged(mouseX, mouseY);
+    }
+
+    @Override
+    public void mouseReleased() {
+        menu.mouseReleased();
     }
 
     private void interactIfNear() {
@@ -183,8 +251,16 @@ public class Main extends PApplet {
         activeIsMathTest = step == 1;
         player.moveLeft = false;
         player.moveRight = false;
+        if (npc != null && "rico".equals(npc.getSpriteId())) unlockTrading();
         dialogOverlay.start(activeStoryEvent.lines, assets.storySprite(activeStoryEvent.spriteId));
         gameState = GameState.DIALOG;
+    }
+
+    private void unlockTrading() {
+        if (tradingUnlocked) return;
+        tradingUnlocked = true;
+        saveStoryProgression();
+        menu.setTradingUnlocked(true);
     }
 
     private void handleDialogOutcome() {
@@ -205,6 +281,7 @@ public class Main extends PApplet {
         activeIsStoryBattle = true;
         battleScreen.reset(activeStoryEvent.enemyHealth, activeStoryEvent.enemyType);
         battleScreen.setEnemyName(activeStoryEvent.battleName);
+        battleScreen.setEnemySpriteId(activeStoryEvent.spriteId);
         battleEndFrames = 0;
         gameState = GameState.BATTLE;
     }
@@ -221,6 +298,7 @@ public class Main extends PApplet {
 
         if (result == BattleScreen.Result.PLAYER_WON) {
             if (activeIsStoryBattle || activeIsMathTest) {
+                sound.playBling();
                 completeStoryEvent();
                 return;
             }
@@ -266,6 +344,9 @@ public class Main extends PApplet {
         for (int i = 0; i < event.slotCards.length; i++) {
             cardInventory.addCardToSlot(CardDefinition.findByName(event.slotCards[i]), i);
         }
+        for (String sheetName : event.cheatSheets) {
+            cardInventory.addCheatSheet(rpg.CheatSheetDefinition.findByName(sheetName));
+        }
     }
 
     private void drawQuestPanel() {
@@ -283,14 +364,28 @@ public class Main extends PApplet {
         text(event.questText, x + 14, y + 34, 192, 34);
     }
 
-    private int loadStoryProgression() {
+    private void loadStoryProgression() {
         String[] lines = loadStrings(STORY_SAVE_FILE);
-        if (lines == null || lines.length == 0) return 0;
-        return Math.max(0, parseInt(lines[0], 0));
+        storyProgression = 0;
+        tradingUnlocked = false;
+        if (lines == null || lines.length == 0) return;
+        storyProgression = Math.max(0, parseInt(lines[0], 0));
+        if (lines.length > 1) {
+            tradingUnlocked = "1".equals(lines[1].trim());
+        } else {
+            // Older save from before trading was locked behind Rico — infer
+            // the unlock so returning players aren't suddenly relocked out
+            // of a feature they already had. Rico's quest becomes active at
+            // progression step 6, so reaching that far means they've met him.
+            tradingUnlocked = storyProgression >= 6;
+        }
     }
 
     private void saveStoryProgression() {
-        saveStrings(STORY_SAVE_FILE, new String[]{String.valueOf(storyProgression)});
+        saveStrings(STORY_SAVE_FILE, new String[]{
+                String.valueOf(storyProgression),
+                tradingUnlocked ? "1" : "0"
+        });
     }
 
     private DialogOverlay.Line line(String speaker, String text, String a, String b) {
@@ -332,7 +427,7 @@ public class Main extends PApplet {
                         line("Hallway Jock", "Since I say so. You wanna get through? Beat me.", "Let's go.", "Fine."));
             case 5:
                 return story("msPatel", "Find Ms. Patel.", false, GameMap.EnemyType.GEEK, 80, "Ms. Patel", 0, 0,
-                        new String[0], new String[0],
+                        new String[0], new String[0], new String[]{"Extra Time"},
                         line("Ms. Patel", "Oh, a new face! Welcome to Deskintop High.", "It's... something.", "Why does everyone have cards?"),
                         item("Ms. Patel", "You received 1 Cheat Sheet: Extra Time."));
             case 6:
@@ -377,7 +472,7 @@ public class Main extends PApplet {
                         line("English Test", "The third exam starts. Something about this one feels orchestrated.", "Begin.", "No shortcuts."));
             case 14:
                 return story("rico", "Find Rico to put the pieces together.", false, GameMap.EnemyType.GEEK, 80, "Rico", 0, 0,
-                        new String[0], new String[0],
+                        new String[0], new String[0], new String[]{"Process of Elimination"},
                         line("Rico", "Marcus plants cheat sheets, gets people hooked, then pulls the rug.", "That's calculated.", "So what do we do?"),
                         item("Rico", "You received 1 Cheat Sheet: Bonus Answers."));
             case 15:
@@ -416,11 +511,19 @@ public class Main extends PApplet {
     private StoryEvent story(String spriteId, String questText, boolean battle, GameMap.EnemyType type,
                              int hp, String battleName, int gumballs, int randomCards,
                              String[] namedCards, String[] slotCards, DialogOverlay.Line... lines) {
+        return story(spriteId, questText, battle, type, hp, battleName, gumballs, randomCards,
+                namedCards, slotCards, new String[0], lines);
+    }
+
+    private StoryEvent story(String spriteId, String questText, boolean battle, GameMap.EnemyType type,
+                             int hp, String battleName, int gumballs, int randomCards,
+                             String[] namedCards, String[] slotCards, String[] cheatSheets,
+                             DialogOverlay.Line... lines) {
         if (battle && lines.length > 0) {
             DialogOverlay.Line last = lines[lines.length - 1];
             lines[lines.length - 1] = new DialogOverlay.Line(last.speaker, last.text, last.responses, last.itemText, true);
         }
-        return new StoryEvent(spriteId, questText, type, hp, battleName, gumballs, randomCards, namedCards, slotCards, lines);
+        return new StoryEvent(spriteId, questText, type, hp, battleName, gumballs, randomCards, namedCards, slotCards, cheatSheets, lines);
     }
 
     private static class StoryEvent {
@@ -433,11 +536,12 @@ public class Main extends PApplet {
         final int randomCards;
         final String[] namedCards;
         final String[] slotCards;
+        final String[] cheatSheets;
         final DialogOverlay.Line[] lines;
 
         StoryEvent(String spriteId, String questText, GameMap.EnemyType enemyType, int enemyHealth,
                    String battleName, int gumballs, int randomCards, String[] namedCards,
-                   String[] slotCards, DialogOverlay.Line[] lines) {
+                   String[] slotCards, String[] cheatSheets, DialogOverlay.Line[] lines) {
             this.spriteId = spriteId;
             this.questText = questText;
             this.enemyType = enemyType;
@@ -447,6 +551,7 @@ public class Main extends PApplet {
             this.randomCards = randomCards;
             this.namedCards = namedCards;
             this.slotCards = slotCards;
+            this.cheatSheets = cheatSheets;
             this.lines = lines;
         }
     }

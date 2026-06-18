@@ -1,14 +1,17 @@
-V,3
-G,125
-B,Studying
-B,Studying
-B,Studying
-B,Billy tuants
-B,ChatGPT
-B,Deodorant
+V,4
+G,100
 B,Studying
 B,Textbook
-E,0,Bonus answers
+B,Studying
+B,Studying
+B,Studying
+B,Studying
+B,Textbook
+B,Textbook
+B,ChatGPT
+B,Emotional Damage
+E,0,Textbook
 E,1,Bonus answers
-E,2,Studying
+E,2,Emotional Damage
 E,3,Textbook
+CS,Extra Time

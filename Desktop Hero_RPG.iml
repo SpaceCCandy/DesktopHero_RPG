@@ -8,5 +8,6 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="core-4.4.10" level="project" />
+    <orderEntry type="library" name="sound" level="project" />
   </component>
 </module>

@@ -118,11 +118,13 @@ public class Player {
         y = footY - height;
     }
 
-    public void jump() {
+    public boolean jump() {
 
         if(grounded) {
             velY = jumpForce;
+            return true;
         }
+        return false;
     }
 
     public void landOnPlatform(float platformY) {

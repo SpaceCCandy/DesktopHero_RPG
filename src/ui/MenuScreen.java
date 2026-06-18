@@ -1,9 +1,11 @@
 package ui;
 
+import game.SoundManager;
 import processing.core.PApplet;
 import processing.core.PFont;
 import rpg.CardDefinition;
 import rpg.CardInventory;
+import rpg.CheatSheetDefinition;
 
 import java.util.List;
 
@@ -21,7 +23,7 @@ public class MenuScreen {
     private static final int MENU_BTN_SET_Y   = 260, MENU_BTN_PLAY_Y  = 328;
 
     // ── Trade window ─────────────────────────────────────────────────────────
-    private static final int TRADE_W = 580, TRADE_H = 340;
+    private static final int TRADE_W = 580, TRADE_H = 400;
     private static final int TRADE_LEGEND_X      = 24,  TRADE_COMMON_Y  = 66;
     private static final int TRADE_RARE_Y        = 84,  TRADE_LEGEND_Y  = 102;
     private static final int TRADE_CYBER_Y       = 120, TRADE_GUMBALLS_Y = 158;
@@ -31,9 +33,17 @@ public class MenuScreen {
     private static final int TRADE_CARD_COL_W    = 66,  TRADE_CARD_ROW_H = 116;
     private static final int TRADE_CARD_W        = 56,  TRADE_CARD_H     = 96;
     private static final int TRADE_CARDS_PER_ROW = 5;
+    private static final int TRADE_CARD_ROWS_VISIBLE = 2; // visible rows before scrolling kicks in
+    private static final int TRADE_CARDS_VIEW_H  = TRADE_CARD_ROWS_VISIBLE * TRADE_CARD_ROW_H;
+    private static final int TRADE_SCROLL_X_OFF  = 30;
 
     // ── Inventory window ─────────────────────────────────────────────────────
-    private static final int INVENTORY_W = 700, INVENTORY_H = 430;
+    // Layout, top to bottom inside the window:
+    //   INV_SECTION_Y       -> "Battle Deck" / "Backpack" labels + divider
+    //   INV_PACK_START_Y    -> backpack card grid (INV_PACK_ROWS rows, scrollable)
+    //   INV_SHEET_LABEL_Y   -> "Cheat Sheets" label + divider (clear of the grid above)
+    //   INV_SHEET_Y         -> cheat sheet boxes (also scrollable, single row visible)
+    private static final int INVENTORY_W = 700, INVENTORY_H = 560;
     private static final int INV_SECTION_Y       = 76;
     private static final int INV_DECK_X          = 32;
     private static final int INV_DECK_COL_W      = 92,  INV_DECK_ROW_H   = 106;
@@ -46,10 +56,36 @@ public class MenuScreen {
     private static final int INV_PACK_W          = 78,  INV_PACK_H       = 82;
     private static final int INV_PACK_COLS       = 4,   INV_PACK_ROWS    = 3;
     private static final int INV_SCROLL_X_OFF    = 38;
-    private static final int INV_SCROLL_PAD_TOP  = 104, INV_SCROLL_PAD_BOT = 146;
+    // Backpack grid occupies INV_PACK_START_Y .. INV_PACK_START_Y + INV_PACK_ROWS*INV_PACK_ROW_H
+    // = 104 .. 398. Scrollbar spans exactly that range so it never collides with the cheat
+    // sheets section below.
+    private static final int INV_PACK_GRID_H     = INV_PACK_ROWS * INV_PACK_ROW_H;
+    private static final int INV_SCROLL_PAD_TOP  = INV_PACK_START_Y;
+    private static final int INV_SCROLL_PAD_BOT  = INVENTORY_H - (INV_PACK_START_Y + INV_PACK_GRID_H);
+
+    // Cheat sheets sub-section sits below the backpack grid with clear spacing.
+    private static final int INV_SHEET_LABEL_Y   = INV_PACK_START_Y + INV_PACK_GRID_H + 34; // 432
+    private static final int INV_SHEET_DIVIDER_Y = INV_SHEET_LABEL_Y + 12;
+    private static final int INV_SHEET_Y         = INV_SHEET_LABEL_Y + 20;
+    private static final int INV_SHEET_X         = 32;
+    private static final int INV_SHEET_W         = 110, INV_SHEET_H = 78;
+    private static final int INV_SHEET_GAP       = 10;
+    private static final int INV_SHEET_VISIBLE   = 5; // how many sheet boxes fit on one row
+    private static final int INV_SHEET_SCROLL_X_OFF = 30;
 
     // ── Settings ─────────────────────────────────────────────────────────────
     private static final int SETTINGS_W = 320, SETTINGS_H = 320;
+    private static final int SETTINGS_VOL_LABEL_Y = 96;
+    private static final int SETTINGS_SLIDER_X    = 20,  SETTINGS_SLIDER_Y = 130;
+    private static final int SETTINGS_SLIDER_W    = 280, SETTINGS_SLIDER_H = 14;
+    private static final int SETTINGS_SLIDER_HIT_PAD = 10; // extra grab area above/below the bar
+    private static final int SETTINGS_VOL_PCT_Y   = 160;
+
+    // ── Locked-feature toast (bottom of screen) ─────────────────────────────
+    private static final int LOCK_MSG_DURATION = 150; // frames (~2.5s at 60fps)
+    private static final int LOCK_MSG_FADE     = 30;  // frames spent fading out at the end
+    private static final int LOCK_MSG_H        = 44;
+    private static final int LOCK_MSG_BOTTOM_MARGIN = 24;
 
     // ── Card rendering ────────────────────────────────────────────────────────
     private static final int   CARD_STRIP_H      = 9;
@@ -90,16 +126,30 @@ public class MenuScreen {
 
     // ── State ─────────────────────────────────────────────────────────────────
     private final CardInventory inventory;
+    private SoundManager sound;
     private PFont font;
     private boolean open           = true;
     private Window  activeWindow   = Window.NONE;
     private String  tradeMessage   = "Spend gumballs to draw new cards!";
     private int     screenW        = 960, screenH = 580;
     private int     inventoryScroll;
+    private int     cheatScroll;
+    private int     tradeScroll;
+
+    private boolean tradingUnlocked;
+    private String  lockedMessage;
+    private int     lockedMessageFrames;
+    private boolean draggingVolumeSlider;
 
     public MenuScreen(CardInventory inventory) {
         this.inventory = inventory;
     }
+
+    /** Wires up the sound manager so the Settings window can control music volume. */
+    public void setSound(SoundManager sound) { this.sound = sound; }
+
+    /** Call once trading should be available (e.g. after the player talks to Rico). */
+    public void setTradingUnlocked(boolean unlocked) { this.tradingUnlocked = unlocked; }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
@@ -113,6 +163,11 @@ public class MenuScreen {
         if      (activeWindow == Window.TRADE)     drawTradeWindow(p);
         else if (activeWindow == Window.INVENTORY) drawInventoryWindow(p);
         else if (activeWindow == Window.SETTINGS)  drawSettingsWindow(p);
+
+        if (lockedMessageFrames > 0) {
+            drawLockedMessageToast(p);
+            lockedMessageFrames--;
+        }
     }
 
     public void mousePressed(int mx, int my) {
@@ -125,16 +180,59 @@ public class MenuScreen {
         if (!open) return;
         int menuW = screenW / 3;
         int btnX  = menuW / 2 - MENU_BTN_W / 2;
-        if      (inside(mx, my, btnX, MENU_BTN_TRADE_Y, MENU_BTN_W, MENU_BTN_H)) activeWindow = Window.TRADE;
+        if (inside(mx, my, btnX, MENU_BTN_TRADE_Y, MENU_BTN_W, MENU_BTN_H)) {
+            if (tradingUnlocked) activeWindow = Window.TRADE;
+            else showLockedMessage("You have not unlocked this feature yet. Talk to Rico first!");
+        }
         else if (inside(mx, my, btnX, MENU_BTN_INV_Y,   MENU_BTN_W, MENU_BTN_H)) activeWindow = Window.INVENTORY;
         else if (inside(mx, my, btnX, MENU_BTN_SET_Y,   MENU_BTN_W, MENU_BTN_H)) activeWindow = Window.SETTINGS;
         else if (inside(mx, my, btnX, MENU_BTN_PLAY_Y,  MENU_BTN_W, MENU_BTN_H)) open = false;
     }
 
+    public void mouseDragged(int mx, int my) {
+        if (draggingVolumeSlider) setVolumeFromMouseX(mx);
+    }
+
+    public void mouseReleased() {
+        draggingVolumeSlider = false;
+    }
+
+    private void showLockedMessage(String text) {
+        lockedMessage = text;
+        lockedMessageFrames = LOCK_MSG_DURATION;
+    }
+
+    public void mouseWheel(float amount, int mx, int my) {
+        int dir = amount > 0 ? 1 : -1;
+
+        if (activeWindow == Window.INVENTORY) {
+            int x = cx(INVENTORY_W), y = cy(INVENTORY_H);
+            // Backpack grid zone
+            if (inside(mx, my, x + INV_PACK_X, y + INV_PACK_START_Y,
+                    INV_PACK_COLS * INV_PACK_COL_W, INV_PACK_GRID_H)) {
+                inventoryScroll = PApplet.constrain(inventoryScroll + dir, 0, maxPackScroll());
+                return;
+            }
+            // Cheat sheets row zone
+            if (inside(mx, my, x + INV_SHEET_X, y + INV_SHEET_Y,
+                    INVENTORY_W - INV_SHEET_X - 20, INV_SHEET_H)) {
+                cheatScroll = PApplet.constrain(cheatScroll + dir, 0, maxCheatScroll());
+                return;
+            }
+            // Default: scroll whichever has room, preferring the backpack
+            if (maxPackScroll() > 0) inventoryScroll = PApplet.constrain(inventoryScroll + dir, 0, maxPackScroll());
+            else if (maxCheatScroll() > 0) cheatScroll = PApplet.constrain(cheatScroll + dir, 0, maxCheatScroll());
+            return;
+        }
+
+        if (activeWindow == Window.TRADE) {
+            tradeScroll = PApplet.constrain(tradeScroll + dir, 0, maxTradeScroll());
+        }
+    }
+
+    /** Legacy entry point retained for callers that don't track mouse position. */
     public void mouseWheel(float amount) {
-        if (activeWindow != Window.INVENTORY) return;
-        inventoryScroll = PApplet.constrain(
-                inventoryScroll + (amount > 0 ? 1 : -1), 0, maxPackScroll());
+        mouseWheel(amount, -1, -1);
     }
 
     public boolean isOpen() { return open; }
@@ -174,7 +272,7 @@ public class MenuScreen {
         p.fill(C_GUMBALLS); useFont(p, 15);
         p.text("🟡  " + inventory.getGumballs() + " gumballs", mW / 2f, MENU_GUMBALLS_Y);
 
-        drawButton(p, "🛒  Trade",     btnX, MENU_BTN_TRADE_Y, MENU_BTN_W, MENU_BTN_H);
+        drawButton(p, tradingUnlocked ? "🛒  Trade" : "🔒  Trade", btnX, MENU_BTN_TRADE_Y, MENU_BTN_W, MENU_BTN_H);
         drawButton(p, "🎒  Inventory", btnX, MENU_BTN_INV_Y,   MENU_BTN_W, MENU_BTN_H);
         drawButton(p, "⚙  Settings",  btnX, MENU_BTN_SET_Y,   MENU_BTN_W, MENU_BTN_H);
         drawButton(p, "▶  Play",       btnX, MENU_BTN_PLAY_Y,  MENU_BTN_W, MENU_BTN_H);
@@ -206,10 +304,16 @@ public class MenuScreen {
         p.text(tradeMessage, x + TRADE_LEGEND_X, y + TRADE_MESSAGE_Y);
 
         for (int i = 0; i < CardDefinition.ALL.length; i++) {
+            int row = i / TRADE_CARDS_PER_ROW;
+            int visibleRow = row - tradeScroll;
+            if (visibleRow < 0 || visibleRow >= TRADE_CARD_ROWS_VISIBLE) continue; // scrolled out of view
             int cx = x + TRADE_CARDS_X + (i % TRADE_CARDS_PER_ROW) * TRADE_CARD_COL_W;
-            int cy = y + TRADE_CARDS_Y  + (i / TRADE_CARDS_PER_ROW) * TRADE_CARD_ROW_H;
+            int cy = y + TRADE_CARDS_Y + visibleRow * TRADE_CARD_ROW_H;
             drawSmallCard(p, CardDefinition.ALL[i], cx, cy, TRADE_CARD_W, TRADE_CARD_H);
         }
+
+        drawScrollBar(p, x + TRADE_W - TRADE_SCROLL_X_OFF, y + TRADE_CARDS_Y,
+                TRADE_CARDS_VIEW_H, maxTradeScroll(), tradeScroll);
     }
 
     // ── Draw: inventory window ────────────────────────────────────────────────
@@ -261,7 +365,43 @@ public class MenuScreen {
         }
 
         drawScrollBar(p, x + INVENTORY_W - INV_SCROLL_X_OFF, y + INV_SCROLL_PAD_TOP,
-                INVENTORY_H - INV_SCROLL_PAD_BOT, maxPackScroll(), inventoryScroll);
+                INV_PACK_GRID_H, maxPackScroll(), inventoryScroll);
+
+        // ── Cheat Sheets sub-section (sits below the backpack grid, never overlaps it) ──
+        p.fill(C_ACCENT); useFont(p, 14);
+        p.textAlign(PApplet.LEFT, PApplet.CENTER);
+        p.text("Cheat Sheets", x + INV_SHEET_X, y + INV_SHEET_LABEL_Y);
+        p.stroke(C_ACCENT); p.strokeWeight(1.5f);
+        p.line(x + INV_SHEET_X, y + INV_SHEET_DIVIDER_Y,
+                x + INVENTORY_W - 50, y + INV_SHEET_DIVIDER_Y);
+        p.strokeWeight(1);
+
+        List<CheatSheetDefinition> sheets = inventory.getCheatSheets();
+        for (int i = 0; i < INV_SHEET_VISIBLE; i++) {
+            int idx = cheatScroll + i;
+            if (idx >= sheets.size()) break;
+            CheatSheetDefinition sheet = sheets.get(idx);
+            int sx = x + INV_SHEET_X + i * (INV_SHEET_W + INV_SHEET_GAP);
+            int sy = y + INV_SHEET_Y;
+            p.fill(sheet.fillColor); p.stroke(160); p.strokeWeight(1);
+            p.rect(sx, sy, INV_SHEET_W, INV_SHEET_H, 5);
+            p.fill(C_TEXT); useFont(p, 11);
+            p.textAlign(PApplet.CENTER, PApplet.CENTER);
+            p.text(sheet.name, sx + INV_SHEET_W / 2f, sy + INV_SHEET_H / 2f - 10);
+            p.fill(C_TEXT_SOFT); useFont(p, 9);
+            p.text(sheet.description, sx + INV_SHEET_W / 2f, sy + INV_SHEET_H / 2f + 12,
+                    INV_SHEET_W - 8, 28);
+        }
+        if (sheets.isEmpty()) {
+            p.fill(C_TEXT_SOFT); useFont(p, 12);
+            p.textAlign(PApplet.LEFT, PApplet.CENTER);
+            p.text("None yet — find them in the story!", x + INV_SHEET_X, y + INV_SHEET_Y + INV_SHEET_H / 2f);
+        } else if (sheets.size() > INV_SHEET_VISIBLE) {
+            // Small horizontal scrollbar under the cheat sheet row when there's overflow
+            int barY = y + INV_SHEET_Y + INV_SHEET_H + 8;
+            int barW = INV_SHEET_VISIBLE * (INV_SHEET_W + INV_SHEET_GAP) - INV_SHEET_GAP;
+            drawHScrollBar(p, x + INV_SHEET_X, barY, barW, maxCheatScroll(), cheatScroll);
+        }
     }
 
     // ── Draw: settings window ─────────────────────────────────────────────────
@@ -269,9 +409,39 @@ public class MenuScreen {
     private void drawSettingsWindow(PApplet p) {
         int x = cx(SETTINGS_W), y = cy(SETTINGS_H);
         drawWindowShell(p, "⚙  Settings", x, y, SETTINGS_W, SETTINGS_H);
-        p.fill(C_TEXT_SOFT); useFont(p, 13);
+
+        p.fill(C_TEXT); useFont(p, 14);
         p.textAlign(PApplet.LEFT, PApplet.CENTER);
-        p.text("(Nothing to configure yet!)", x + 20, y + 100);
+        p.text("Music Volume", x + 20, y + SETTINGS_VOL_LABEL_Y);
+
+        boolean soundOn = sound != null && sound.isAvailable();
+        float volume = soundOn ? sound.getMusicVolume() : 0f;
+
+        // Track
+        p.fill(225); p.stroke(150); p.strokeWeight(1.5f);
+        p.rect(x + SETTINGS_SLIDER_X, y + SETTINGS_SLIDER_Y, SETTINGS_SLIDER_W, SETTINGS_SLIDER_H, 7);
+        p.strokeWeight(1);
+
+        // Filled portion
+        float fillW = SETTINGS_SLIDER_W * volume;
+        p.fill(C_ACCENT2); p.noStroke();
+        p.rect(x + SETTINGS_SLIDER_X, y + SETTINGS_SLIDER_Y, fillW, SETTINGS_SLIDER_H, 7);
+
+        // Knob
+        float knobX = x + SETTINGS_SLIDER_X + fillW;
+        float knobY = y + SETTINGS_SLIDER_Y + SETTINGS_SLIDER_H / 2f;
+        p.fill(255); p.stroke(C_ACCENT); p.strokeWeight(2);
+        p.ellipse(knobX, knobY, 16, 16);
+        p.strokeWeight(1);
+
+        p.fill(C_TEXT_SOFT); useFont(p, 12);
+        p.textAlign(PApplet.LEFT, PApplet.CENTER);
+        p.text(Math.round(volume * 100) + "%", x + 20, y + SETTINGS_VOL_PCT_Y);
+
+        if (!soundOn) {
+            p.fill(C_TEXT_SOFT); useFont(p, 11);
+            p.text("(Sound library not installed — see SoundManager.java)", x + 20, y + SETTINGS_VOL_PCT_Y + 24);
+        }
     }
 
     // ── Click handlers ────────────────────────────────────────────────────────
@@ -315,7 +485,24 @@ public class MenuScreen {
     }
 
     private boolean handleSettingsClick(int mx, int my) {
-        return handleClose(mx, my, cx(SETTINGS_W), cy(SETTINGS_H), SETTINGS_W);
+        int x = cx(SETTINGS_W), y = cy(SETTINGS_H);
+        if (handleClose(mx, my, x, y, SETTINGS_W)) return true;
+
+        if (sound != null && sound.isAvailable() && inside(mx, my,
+                x + SETTINGS_SLIDER_X, y + SETTINGS_SLIDER_Y - SETTINGS_SLIDER_HIT_PAD,
+                SETTINGS_SLIDER_W, SETTINGS_SLIDER_H + SETTINGS_SLIDER_HIT_PAD * 2)) {
+            draggingVolumeSlider = true;
+            setVolumeFromMouseX(mx);
+            return true;
+        }
+        return false;
+    }
+
+    private void setVolumeFromMouseX(int mx) {
+        if (sound == null || !sound.isAvailable()) return;
+        int x = cx(SETTINGS_W);
+        float fraction = (mx - (x + SETTINGS_SLIDER_X)) / (float) SETTINGS_SLIDER_W;
+        sound.setMusicVolume(PApplet.constrain(fraction, 0f, 1f));
     }
 
     private boolean handleClose(int mx, int my, int x, int y, int w) {
@@ -326,6 +513,24 @@ public class MenuScreen {
     }
 
     // ── Draw primitives ───────────────────────────────────────────────────────
+
+    private void drawLockedMessageToast(PApplet p) {
+        int alpha = lockedMessageFrames < LOCK_MSG_FADE
+                ? (int) (255 * (lockedMessageFrames / (float) LOCK_MSG_FADE))
+                : 255;
+
+        useFont(p, 13);
+        float textW = p.textWidth(lockedMessage);
+        float boxW = textW + 40;
+        float x = (screenW - boxW) / 2f;
+        float y = screenH - LOCK_MSG_H - LOCK_MSG_BOTTOM_MARGIN;
+
+        p.fill(40, 30, 50, alpha); p.noStroke();
+        p.rect(x, y, boxW, LOCK_MSG_H, 8);
+        p.fill(255, 220, 90, alpha);
+        p.textAlign(PApplet.CENTER, PApplet.CENTER);
+        p.text(lockedMessage, x + boxW / 2f, y + LOCK_MSG_H / 2f);
+    }
 
     private void drawWindowShell(PApplet p, String title, int x, int y, int w, int h) {
         // Shadow
@@ -360,6 +565,16 @@ public class MenuScreen {
         float ty = max == 0 ? y : y + (h - th) * (cur / (float) max);
         p.fill(C_SCROLL_FG); p.noStroke();
         p.rect(x + 2, ty + 2, SCROLLBAR_W - 4, th - 4, SCROLLBAR_R);
+    }
+
+    /** Horizontal counterpart to drawScrollBar, used under the cheat sheet row. */
+    private void drawHScrollBar(PApplet p, int x, int y, int w, int max, int cur) {
+        int barH = 8;
+        p.fill(C_SCROLL_BG); p.stroke(140); p.rect(x, y, w, barH, 4);
+        float tw = max == 0 ? w : Math.max(24, w / (max + 1f));
+        float tx = max == 0 ? x : x + (w - tw) * (cur / (float) max);
+        p.fill(C_SCROLL_FG); p.noStroke();
+        p.rect(tx + 1, y + 1, tw - 2, barH - 2, 4);
     }
 
     private void drawButton(PApplet p, String text, int x, int y, int w, int h) {
@@ -414,6 +629,16 @@ public class MenuScreen {
     private int maxPackScroll() {
         int rows = (int) Math.ceil(inventory.getBackpackCards().size() / (double) INV_PACK_COLS);
         return Math.max(0, rows - INV_PACK_ROWS);
+    }
+
+    private int maxTradeScroll() {
+        int rows = (int) Math.ceil(CardDefinition.ALL.length / (double) TRADE_CARDS_PER_ROW);
+        return Math.max(0, rows - TRADE_CARD_ROWS_VISIBLE);
+    }
+
+    private int maxCheatScroll() {
+        int count = inventory.getCheatSheets().size();
+        return Math.max(0, count - INV_SHEET_VISIBLE);
     }
 
     private boolean inside(int mx, int my, int x, int y, int w, int h) {

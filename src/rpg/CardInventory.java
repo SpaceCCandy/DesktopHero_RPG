@@ -9,11 +9,12 @@ import java.util.List;
 public class CardInventory {
 
     private static final String SAVE_FILE    = "data/card_inventory.csv";
-    private static final String SAVE_VERSION = "V,3";  // bump to wipe old saves
+    private static final String SAVE_VERSION = "V,4";  // bump to wipe old saves
 
     private final PApplet app;
     private final List<CardDefinition> backpack = new ArrayList<>();
     private final CardDefinition[] equipped = new CardDefinition[4];
+    private final List<CheatSheetDefinition> cheatSheets = new ArrayList<>();
     private int selectedSlot;
     private int gumballs;
 
@@ -93,6 +94,8 @@ public class CardInventory {
                 gumballs = PApplet.parseInt(p[1]);
             } else if ("B".equals(p[0])) {
                 backpack.add(CardDefinition.findByName(p[1]));
+            } else if ("CS".equals(p[0]) && p.length >= 2) {
+                cheatSheets.add(CheatSheetDefinition.findByName(p[1]));
             } else if ("E".equals(p[0]) && p.length >= 3) {
                 int slot = PApplet.parseInt(p[1]);
                 if (slot >= 0 && slot < equipped.length)
@@ -111,11 +114,22 @@ public class CardInventory {
         for (CardDefinition c : backpack)        lines.add("B," + c.name);
         for (int i = 0; i < equipped.length; i++)
             if (equipped[i] != null) lines.add("E," + i + "," + equipped[i].name);
+        for (CheatSheetDefinition s : cheatSheets) lines.add("CS," + s.name);
 
         app.saveStrings(f.getAbsolutePath(), lines.toArray(new String[0]));
     }
 
-    public List<CheatSheetDefinition> getCheatSheets() {
-        return new ArrayList<>(); // placeholder until cheat sheets are implemented
+    public List<CheatSheetDefinition> getCheatSheets() { return cheatSheets; }
+
+    public void addCheatSheet(CheatSheetDefinition sheet) {
+        cheatSheets.add(sheet);
+        save();
+    }
+
+    public CheatSheetDefinition useCheatSheet(int index) {
+        if (index < 0 || index >= cheatSheets.size()) return null;
+        CheatSheetDefinition sheet = cheatSheets.remove(index);
+        save();
+        return sheet;
     }
 }
