@@ -62,6 +62,7 @@ public class Main extends PApplet {
         gameMap.setStoryProgression(storyProgression);
         menu.setTradingUnlocked(tradingUnlocked);
         sound = new SoundManager(this);
+        sound.init();
         menu.setSound(sound);
         sound.startMusic();
         lastFrameMillis = millis();
@@ -69,21 +70,18 @@ public class Main extends PApplet {
 
     @Override
     public void draw() {
-        // If current state is battling, show the battle menu
         if (gameState == GameState.BATTLE) {
             battleScreen.draw(this);
             finishBattleAfterDelay();
             return;
         }
 
-        // If current state is dialog, pause the world update, and show the dialog screen
         if (gameState == GameState.DIALOG) {
             drawGameWorld(false);
             dialogOverlay.draw(this);
             return;
         }
 
-        // If nothing, just load movements, and map gen
         if (gameState != GameState.GAME) return;
         drawGameWorld(true);
     }

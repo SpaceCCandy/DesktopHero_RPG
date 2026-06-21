@@ -1,7 +1,7 @@
 package game;
 
 import processing.core.PApplet;
-import processing.sound.SoundFile;
+import processing.sound. *;
 
 /**
  * Central manager for background music and sound effects.
@@ -17,7 +17,7 @@ import processing.sound.SoundFile;
 public class SoundManager {
 
     private static final String SETTINGS_FILE    = "data/settings.csv";
-    private static final float  DEFAULT_VOLUME   = 0.6f;
+    private static final float  DEFAULT_VOLUME   = 0.0f;
 
     private final PApplet app;
     private SoundFile music;
@@ -38,15 +38,25 @@ public class SoundManager {
      */
     public void init() {
         try {
-            music    = new SoundFile(app, app.sketchPath("assets/sound/ChillMusic.mp3"));
-            jumpSfx  = new SoundFile(app, app.sketchPath("assets/sound/Jump.mp3"));
-            blingSfx = new SoundFile(app, app.sketchPath("assets/sound/Bling_.mp3"));
+            String basePath = app.sketchPath("src/assets/sound/");
+            // Fallback: some IntelliJ/Processing setups have "src" as the sketch root
+            // already (so sketchPath() points straight at it), in which case the
+            // "src/assets/sound" folder above won't exist — try "assets/sound" too.
+            java.io.File probe = new java.io.File(basePath);
+            if (!probe.exists()) {
+                basePath = app.sketchPath("assets/sound/");
+            }
+
+            music    = new SoundFile(app, basePath + "ChillMusic.wav");
+            jumpSfx  = new SoundFile(app, basePath + "Jump.wav");
+            blingSfx = new SoundFile(app, basePath + "Bling_.wav");
             available = true;
             loadVolume();
-            System.out.println("[SoundManager] Loaded OK. Volume: " + musicVolume);
+            System.out.println("[SoundManager] Loaded OK from: " + basePath + " | Volume: " + musicVolume);
         } catch (Exception e) {
             System.out.println("[SoundManager] Failed to load sounds: " + e.getMessage());
-            System.out.println("  Make sure the sound files are in: " + app.sketchPath("assets/sound/"));
+            System.out.println("[SoundManager] Tried sketchPath: " + app.sketchPath(""));
+            System.out.println("[SoundManager] Make sure ChillMusic.wav, Jump.wav, Bling_.wav exist under src/assets/sound/");
             available = false;
         }
     }
@@ -62,7 +72,9 @@ public class SoundManager {
     }
 
     public void playJump() {
-        if (available && jumpSfx != null) jumpSfx.play();
+        if (available && jumpSfx != null)
+            jumpSfx.play();
+            jumpSfx.amp(0.3f);
     }
 
     public void playBling() {
@@ -80,13 +92,17 @@ public class SoundManager {
     // ── Volume persistence ────────────────────────────────────────────────────
 
     private void loadVolume() {
-        String[] lines = app.loadStrings(app.sketchPath(SETTINGS_FILE));
+        java.io.File f = new java.io.File(app.sketchPath(SETTINGS_FILE));
+        if (!f.exists()) return;
+        String[] lines = app.loadStrings(f.getAbsolutePath());
         if (lines == null || lines.length == 0) return;
         try { musicVolume = PApplet.constrain(Float.parseFloat(lines[0].trim()), 0f, 1f); }
         catch (NumberFormatException ignored) {}
     }
 
     private void saveVolume() {
-        app.saveStrings(app.sketchPath(SETTINGS_FILE), new String[]{ String.valueOf(musicVolume) });
+        java.io.File f = new java.io.File(app.sketchPath(SETTINGS_FILE));
+        if (f.getParentFile() != null) f.getParentFile().mkdirs();
+        app.saveStrings(f.getAbsolutePath(), new String[]{ String.valueOf(musicVolume) });
     }
 }

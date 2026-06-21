@@ -9,5 +9,6 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="core-4.4.10" level="project" />
     <orderEntry type="library" name="sound" level="project" />
+    <orderEntry type="library" name="jsyn-17.1.0" level="project" />
   </component>
 </module>

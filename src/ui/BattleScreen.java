@@ -7,6 +7,10 @@ import processing.core.PFont;
 import processing.core.PImage;
 import rpg.CardDefinition;
 import rpg.CardInventory;
+import rpg.CheatSheetDefinition;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class BattleScreen {
 
@@ -27,6 +31,9 @@ public class BattleScreen {
     private static final int CHEAT_BTN_X = PANEL_X + PANEL_W - CHEAT_BTN_W - CHEAT_BTN_MARGIN;
     private static final int CHEAT_BTN_Y = PANEL_Y + PANEL_H - CHEAT_BTN_H - CHEAT_BTN_MARGIN;
 
+    // Active-effect badges, shown under the player's health/energy bars
+    private static final int EFFECT_BADGE_X = 90, EFFECT_BADGE_Y = 152, EFFECT_BADGE_GAP = 6;
+
     private final CardInventory inventory;
     private AssetManager assets;
     private PFont font;
@@ -41,6 +48,25 @@ public class BattleScreen {
     private GameMap.EnemyType enemyType;
     private String enemySpriteId; // optional override: shows the exact NPC sprite fought
     private boolean cheatUsedThisTurn = false;  // resets each turn
+
+    /**
+     * A multi-turn effect currently active on the player, applied from a
+     * cheat sheet. turnsRemaining counts down by 1 at the end of every
+     * player turn (after either an attack or a skip); the effect expires
+     * once it reaches 0.
+     */
+    private static class ActiveEffect {
+        final CheatSheetDefinition.EffectType type;
+        final float magnitude;
+        int turnsRemaining;
+        ActiveEffect(CheatSheetDefinition.EffectType type, float magnitude, int turnsRemaining) {
+            this.type = type;
+            this.magnitude = magnitude;
+            this.turnsRemaining = turnsRemaining;
+        }
+    }
+
+    private final List<ActiveEffect> activeEffects = new ArrayList<>();
 
     public BattleScreen(CardInventory inventory) {
         this.inventory = inventory;
@@ -63,6 +89,7 @@ public class BattleScreen {
         message        = "Choose an attack!";
         result         = Result.NONE;
         cheatUsedThisTurn = false;
+        activeEffects.clear();
     }
 
     /** Override the enemy display name (e.g. "Math Test"). */
@@ -112,6 +139,9 @@ public class BattleScreen {
         drawHealthBar(p, "You",        90,  90, playerHealth, PLAYER_MAX_HEALTH, 0xFF4BC86A, 0xFFE03030);
         drawEnergyBar(p,               90, 132);
         drawHealthBar(p, enemyName,   680, 90, enemyHealth,  enemyMaxHealth,     0xFF4BC86A, 0xFFE03030);
+
+        // Active effect badges (multi-turn cheat sheet buffs/debuffs in play)
+        drawActiveEffectBadges(p);
 
         // Fighters
         drawFighter(p, 290, 270, false);
@@ -175,11 +205,16 @@ public class BattleScreen {
         }
         energy -= card.energyCost;
 
-        int dmg = card.damage;
+        float dmg = card.damage;
         boolean effective = isEffective(card);
-        if (effective) dmg = (int)(dmg * 1.25f);
+        if (effective) dmg *= 1.25f;
 
-        enemyHealth -= dmg;
+        // Apply any active player-damage-boosting effects (e.g. Industrial Revolution)
+        float playerMult = currentPlayerDamageMultiplier();
+        dmg *= playerMult;
+
+        int finalDmg = Math.round(dmg);
+        enemyHealth -= finalDmg;
         if (enemyHealth <= 0) {
             enemyHealth = 0;
             message     = "You won! Heading back to the halls...";
@@ -188,30 +223,39 @@ public class BattleScreen {
         }
 
         String bonus = effective ? " (SUPER EFFECTIVE!)" : "";
-        enemyAttack(SKIP_ENERGY_GAIN / 2, "Dealt " + dmg + bonus + ".  ");
+        String boost = playerMult > 1f ? " (BOOSTED!)" : "";
+        tickActiveEffects();
+        enemyAttack(SKIP_ENERGY_GAIN / 2, "Dealt " + finalDmg + bonus + boost + ".  ");
     }
 
     private void skipTurn() {
+        tickActiveEffects();
         enemyAttack(SKIP_ENERGY_GAIN, "Skipped turn — recovered energy.  ");
     }
 
     private void enemyAttack(int energyGain, String prefix) {
         cheatUsedThisTurn = false;  // new player turn starts after enemy attacks
         energy = Math.min(MAX_ENERGY, energy + energyGain);
-        int dmg = 14 + (int)(Math.random() * 13);
-        playerHealth -= dmg;
+
+        float dmg = 14 + (int)(Math.random() * 13);
+        float enemyMult = currentEnemyDamageMultiplier();
+        dmg *= enemyMult;
+        int finalDmg = Math.round(dmg);
+
+        playerHealth -= finalDmg;
+        String debuff = enemyMult < 1f ? " (weakened!)" : "";
         if (playerHealth <= 0) {
             playerHealth = 0;
             message      = "You lost! Heading back...";
             result       = Result.PLAYER_LOST;
             return;
         }
-        message = prefix + enemyName + " dealt " + dmg + ".  Energy +" + energyGain + ".";
+        message = prefix + enemyName + " dealt " + finalDmg + debuff + ".  Energy +" + energyGain + ".";
     }
 
     private boolean isEffective(CardDefinition card) {
         if (enemyType == GameMap.EnemyType.GEEK)
-            return card.subject.equals("Comp Sci") || card.subject.equals("Math") || card.subject.equals("Science");
+            return card.subject.equals("Computer Science") || card.subject.equals("Math") || card.subject.equals("Science");
         if (enemyType == GameMap.EnemyType.ACE)
             return card.subject.equals("History") || card.subject.equals("English");
         if (enemyType == GameMap.EnemyType.JOCK)
@@ -219,34 +263,103 @@ public class BattleScreen {
         return false;
     }
 
+    // ── Status effects (multi-turn cheat sheet buffs/debuffs) ──────────────────
+
+    /** Combined multiplier from all active PLAYER_DAMAGE_MULT effects (1.0 if none active). */
+    private float currentPlayerDamageMultiplier() {
+        float mult = 1f;
+        for (ActiveEffect e : activeEffects) {
+            if (e.type == CheatSheetDefinition.EffectType.PLAYER_DAMAGE_MULT) mult *= e.magnitude;
+        }
+        return mult;
+    }
+
+    /** Combined multiplier from all active ENEMY_DAMAGE_MULT effects (1.0 if none active). */
+    private float currentEnemyDamageMultiplier() {
+        float mult = 1f;
+        for (ActiveEffect e : activeEffects) {
+            if (e.type == CheatSheetDefinition.EffectType.ENEMY_DAMAGE_MULT) mult *= e.magnitude;
+        }
+        return mult;
+    }
+
+    /**
+     * Applies heal-over-time healing for this turn, then counts every active
+     * effect's remaining duration down by one and removes any that expire.
+     * Call once per player turn (attack or skip), after damage/effects for
+     * that turn have already been resolved.
+     */
+    private void tickActiveEffects() {
+        int totalHeal = 0;
+        for (ActiveEffect e : activeEffects) {
+            if (e.type == CheatSheetDefinition.EffectType.HEAL_OVER_TIME) {
+                totalHeal += Math.round(e.magnitude);
+            }
+        }
+        if (totalHeal > 0) {
+            playerHealth = Math.min(PLAYER_MAX_HEALTH, playerHealth + totalHeal);
+        }
+
+        for (int i = activeEffects.size() - 1; i >= 0; i--) {
+            ActiveEffect e = activeEffects.get(i);
+            e.turnsRemaining--;
+            if (e.turnsRemaining <= 0) activeEffects.remove(i);
+        }
+    }
+
     // ── Cheat sheet logic ────────────────────────────────────────────────────────
 
     private void useCheatSheet() {
         if (cheatUsedThisTurn) { message = "Already used a cheat sheet this turn!"; return; }
-        java.util.List<rpg.CheatSheetDefinition> sheets = inventory.getCheatSheets();
+        List<CheatSheetDefinition> sheets = inventory.getCheatSheets();
         if (sheets.isEmpty()) { message = "No cheat sheets in your backpack!"; return; }
         // Pick a random sheet from what the player owns
         int idx = (int)(Math.random() * sheets.size());
-        rpg.CheatSheetDefinition sheet = inventory.useCheatSheet(idx);
+        CheatSheetDefinition sheet = inventory.useCheatSheet(idx);
         if (sheet == null) return;
         cheatUsedThisTurn = true;
-        // Apply effect based on sheet
-        if ("Extra Time".equals(sheet.name)) {
-            energy = Math.min(MAX_ENERGY, energy + 35);
-            message = "Cheat Sheet: Extra Time! +35 energy.";
-        } else if ("Process of Elimination".equals(sheet.name)) {
-            enemyHealth = Math.max(0, enemyHealth - 30);
-            message = "Cheat Sheet: Process of Elimination! Dealt 30 damage.";
-            if (enemyHealth == 0) { message += "  You won!"; result = Result.PLAYER_WON; }
-        } else if ("Curve".equals(sheet.name)) {
-            playerHealth = Math.min(PLAYER_MAX_HEALTH, playerHealth + 30);
-            message = "Cheat Sheet: Curve! Healed 30 HP.";
-        } else {
-            // Generic random effect for any future sheets
-            int roll = (int)(Math.random() * 3);
-            if (roll == 0) { energy = Math.min(MAX_ENERGY, energy + 35); message = "Cheat Sheet: +35 energy!"; }
-            else if (roll == 1) { enemyHealth = Math.max(0, enemyHealth - 30); message = "Cheat Sheet: 30 damage!"; }
-            else { playerHealth = Math.min(PLAYER_MAX_HEALTH, playerHealth + 30); message = "Cheat Sheet: +30 HP!"; }
+        applyCheatSheetEffect(sheet);
+    }
+
+    private void applyCheatSheetEffect(CheatSheetDefinition sheet) {
+        switch (sheet.effect) {
+            case ENERGY_GAIN:
+                energy = Math.min(MAX_ENERGY, energy + Math.round(sheet.magnitude));
+                message = "Cheat Sheet: " + sheet.name + "! +" + Math.round(sheet.magnitude) + " energy.";
+                break;
+
+            case DAMAGE:
+                int dmg = Math.round(sheet.magnitude);
+                enemyHealth = Math.max(0, enemyHealth - dmg);
+                message = "Cheat Sheet: " + sheet.name + "! Dealt " + dmg + " damage.";
+                if (enemyHealth == 0) { message += "  You won!"; result = Result.PLAYER_WON; }
+                break;
+
+            case HEAL_OVER_TIME:
+                // Heal immediately for this turn, then keep healing each turn
+                // for the remaining duration (registered as an active effect).
+                int healNow = Math.round(sheet.magnitude);
+                playerHealth = Math.min(PLAYER_MAX_HEALTH, playerHealth + healNow);
+                if (sheet.duration > 1) {
+                    activeEffects.add(new ActiveEffect(sheet.effect, sheet.magnitude, sheet.duration - 1));
+                    message = "Cheat Sheet: " + sheet.name + "! Healed " + healNow
+                            + " HP now, +" + healNow + " for " + (sheet.duration - 1) + " more turns.";
+                } else {
+                    message = "Cheat Sheet: " + sheet.name + "! Healed " + healNow + " HP.";
+                }
+                break;
+
+            case PLAYER_DAMAGE_MULT:
+                activeEffects.add(new ActiveEffect(sheet.effect, sheet.magnitude, sheet.duration));
+                message = "Cheat Sheet: " + sheet.name + "! Your damage x" + sheet.magnitude
+                        + " for " + sheet.duration + " turn" + (sheet.duration == 1 ? "" : "s") + ".";
+                break;
+
+            case ENEMY_DAMAGE_MULT:
+                activeEffects.add(new ActiveEffect(sheet.effect, sheet.magnitude, sheet.duration));
+                message = "Cheat Sheet: " + sheet.name + "! " + enemyName + "'s damage x" + sheet.magnitude
+                        + " for " + sheet.duration + " turn" + (sheet.duration == 1 ? "" : "s") + ".";
+                break;
         }
     }
 
@@ -321,8 +434,52 @@ public class BattleScreen {
         }
     }
 
+    private void drawActiveEffectBadges(PApplet p) {
+        if (activeEffects.isEmpty()) return;
+
+        int bx = EFFECT_BADGE_X;
+        int by = EFFECT_BADGE_Y;
+        int rowHeight = 24;
+        int maxRowX = 250; // stay clear of the player fighter sprite drawn around x=290
+        p.textFont(font); p.textSize(10);
+        p.textAlign(PApplet.LEFT, PApplet.CENTER);
+
+        for (ActiveEffect e : activeEffects) {
+            String label;
+            int badgeColor;
+            switch (e.type) {
+                case PLAYER_DAMAGE_MULT:
+                    label = "DMG x" + e.magnitude + " (" + e.turnsRemaining + ")";
+                    badgeColor = 0xFFFFD9A0;
+                    break;
+                case ENEMY_DAMAGE_MULT:
+                    label = enemyName + " DMG x" + e.magnitude + " (" + e.turnsRemaining + ")";
+                    badgeColor = 0xFFD7C8FF;
+                    break;
+                case HEAL_OVER_TIME:
+                    label = "Healing +" + Math.round(e.magnitude) + " (" + e.turnsRemaining + ")";
+                    badgeColor = 0xFFC8F5C8;
+                    break;
+                default:
+                    continue; // instant effects never linger and never reach here
+            }
+            float w = p.textWidth(label) + 16;
+            if (bx + w > maxRowX) {
+                bx = EFFECT_BADGE_X;
+                by += rowHeight;
+            }
+            p.fill(badgeColor); p.stroke(120); p.strokeWeight(1);
+            p.rect(bx, by, w, 20, 8);
+            p.noStroke();
+            p.fill(40);
+            p.text(label, bx + 8, by + 10);
+            bx += w + EFFECT_BADGE_GAP;
+        }
+        p.strokeWeight(1);
+    }
+
     private void drawCheatSheetButton(PApplet p, int x, int y) {
-        java.util.List<rpg.CheatSheetDefinition> sheets = inventory.getCheatSheets();
+        List<CheatSheetDefinition> sheets = inventory.getCheatSheets();
         boolean hasSheets = !sheets.isEmpty();
         boolean canUse    = hasSheets && !cheatUsedThisTurn && result == Result.NONE;
 
@@ -365,7 +522,7 @@ public class BattleScreen {
         p.text(card.name, x + CARD_W / 2f, y + 23);
         p.fill(110);
         p.textSize(10);
-        p.text(card.subject, x + CARD_W / 2f, y + 40);
+        p.text(card.subject, x + CARD_W / 2f, y + 40, CARD_W - 8, 18);
         p.fill(25);
         p.textSize(11);
         p.text(card.damage + " dmg", x + CARD_W / 2f - 22, y + 60);

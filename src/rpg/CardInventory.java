@@ -41,6 +41,14 @@ public class CardInventory {
         return card;
     }
 
+    /** Buys a specific cheat sheet at its fixed gumball cost. Returns false if not enough gumballs. */
+    public boolean buyCheatSheet(CheatSheetDefinition sheet) {
+        if (sheet == null || gumballs < sheet.cost) return false;
+        gumballs -= sheet.cost;
+        addCheatSheet(sheet);
+        return true;
+    }
+
     public void addCard(CardDefinition card) {
         backpack.add(card);
         save();

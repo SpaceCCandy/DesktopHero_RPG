@@ -1,17 +1,23 @@
 V,4
-G,100
-B,Studying
+G,110
 B,Textbook
-B,Studying
-B,Studying
-B,Studying
-B,Studying
+B,Senior Skip Day
+B,Gaslight
 B,Textbook
 B,Textbook
-B,ChatGPT
+B,Studying
+B,Textbook
+B,Textbook
 B,Emotional Damage
-E,0,Textbook
+B,MAGIC WAND
+B,Pop Quiz
+B,Punching Ghost
+B,Show Your Work
+B,Textbook
+B,WannaCry
+E,0,Studying
 E,1,Bonus answers
-E,2,Emotional Damage
+E,2,ChatGPT
 E,3,Textbook
 CS,Extra Time
+CS,Process of Elimination

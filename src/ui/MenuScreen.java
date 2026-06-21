@@ -12,6 +12,7 @@ import java.util.List;
 public class MenuScreen {
 
     private enum Window { NONE, TRADE, INVENTORY, SETTINGS }
+    private enum TradeTab { CARDS, CHEAT_SHEETS }
 
     // ── Mini toggle ──────────────────────────────────────────────────────────
     private static final int MINI_X = 10, MINI_Y = 10, MINI_W = 95, MINI_H = 34;
@@ -23,19 +24,37 @@ public class MenuScreen {
     private static final int MENU_BTN_SET_Y   = 260, MENU_BTN_PLAY_Y  = 328;
 
     // ── Trade window ─────────────────────────────────────────────────────────
-    private static final int TRADE_W = 580, TRADE_H = 400;
-    private static final int TRADE_LEGEND_X      = 24,  TRADE_COMMON_Y  = 66;
-    private static final int TRADE_RARE_Y        = 84,  TRADE_LEGEND_Y  = 102;
-    private static final int TRADE_CYBER_Y       = 120, TRADE_GUMBALLS_Y = 158;
-    private static final int TRADE_BTN_Y         = 182, TRADE_BTN_W     = 130, TRADE_BTN_H = 38;
-    private static final int TRADE_MESSAGE_Y     = 260;
-    private static final int TRADE_CARDS_X       = 215, TRADE_CARDS_Y   = 58;
+    // TRADE_CONTENT_Y_OFFSET shifts every piece of content below the tab bar
+    // down uniformly, so the tab bar slots in above everything else without
+    // needing to recompute each individual Y constant by hand.
+    private static final int TRADE_CONTENT_Y_OFFSET = 34;
+    private static final int TRADE_TAB_Y      = 50, TRADE_TAB_H = 30;
+    private static final int TRADE_TAB_W      = 150, TRADE_TAB_GAP = 8;
+    private static final int TRADE_TAB_X      = 24;
+
+    private static final int TRADE_W = 580, TRADE_H = 400 + TRADE_CONTENT_Y_OFFSET;
+    private static final int TRADE_LEGEND_X      = 24,  TRADE_COMMON_Y  = 66 + TRADE_CONTENT_Y_OFFSET;
+    private static final int TRADE_RARE_Y        = 84 + TRADE_CONTENT_Y_OFFSET, TRADE_LEGEND_Y  = 102 + TRADE_CONTENT_Y_OFFSET;
+    private static final int TRADE_CYBER_Y       = 120 + TRADE_CONTENT_Y_OFFSET, TRADE_GUMBALLS_Y = 158 + TRADE_CONTENT_Y_OFFSET;
+    private static final int TRADE_BTN_Y         = 182 + TRADE_CONTENT_Y_OFFSET, TRADE_BTN_W     = 130, TRADE_BTN_H = 38;
+    private static final int TRADE_MESSAGE_Y     = 260 + TRADE_CONTENT_Y_OFFSET;
+    private static final int TRADE_CARDS_X       = 215, TRADE_CARDS_Y   = 58 + TRADE_CONTENT_Y_OFFSET;
     private static final int TRADE_CARD_COL_W    = 66,  TRADE_CARD_ROW_H = 116;
     private static final int TRADE_CARD_W        = 56,  TRADE_CARD_H     = 96;
     private static final int TRADE_CARDS_PER_ROW = 5;
     private static final int TRADE_CARD_ROWS_VISIBLE = 2; // visible rows before scrolling kicks in
     private static final int TRADE_CARDS_VIEW_H  = TRADE_CARD_ROWS_VISIBLE * TRADE_CARD_ROW_H;
     private static final int TRADE_SCROLL_X_OFF  = 30;
+
+    // ── Cheat sheet shop tab ────────────────────────────────────────────────────
+    // Reuses the same right-hand column region as the card grid (TRADE_CARDS_X),
+    // just with bigger boxes since each sheet needs room for a name, buff
+    // description, and gumball cost, and there are far fewer sheets than cards.
+    private static final int SHOP_SHEET_COL_W    = 165, SHOP_SHEET_ROW_H = 118;
+    private static final int SHOP_SHEET_W        = 150, SHOP_SHEET_H     = 100;
+    private static final int SHOP_SHEETS_PER_ROW = 2;
+    private static final int SHOP_SHEET_ROWS_VISIBLE = 2;
+    private static final int SHOP_SHEETS_VIEW_H  = SHOP_SHEET_ROWS_VISIBLE * SHOP_SHEET_ROW_H;
 
     // ── Inventory window ─────────────────────────────────────────────────────
     // Layout, top to bottom inside the window:
@@ -130,11 +149,14 @@ public class MenuScreen {
     private PFont font;
     private boolean open           = true;
     private Window  activeWindow   = Window.NONE;
+    private TradeTab tradeTab      = TradeTab.CARDS;
     private String  tradeMessage   = "Spend gumballs to draw new cards!";
+    private String  cheatShopMessage = "Spend gumballs to buy a cheat sheet!";
     private int     screenW        = 960, screenH = 580;
     private int     inventoryScroll;
     private int     cheatScroll;
     private int     tradeScroll;
+    private int     cheatShopScroll;
 
     private boolean tradingUnlocked;
     private String  lockedMessage;
@@ -226,7 +248,11 @@ public class MenuScreen {
         }
 
         if (activeWindow == Window.TRADE) {
-            tradeScroll = PApplet.constrain(tradeScroll + dir, 0, maxTradeScroll());
+            if (tradeTab == TradeTab.CARDS) {
+                tradeScroll = PApplet.constrain(tradeScroll + dir, 0, maxTradeScroll());
+            } else {
+                cheatShopScroll = PApplet.constrain(cheatShopScroll + dir, 0, maxCheatShopScroll());
+            }
         }
     }
 
@@ -284,6 +310,35 @@ public class MenuScreen {
         int x = cx(TRADE_W), y = cy(TRADE_H);
         drawWindowShell(p, "🛒  Card Shop", x, y, TRADE_W, TRADE_H);
 
+        drawTradeTabs(p, x, y);
+
+        if (tradeTab == TradeTab.CARDS) {
+            drawCardsTab(p, x, y);
+        } else {
+            drawCheatSheetsTab(p, x, y);
+        }
+    }
+
+    private void drawTradeTabs(PApplet p, int x, int y) {
+        drawTabButton(p, "Knowledge Cards", x + TRADE_TAB_X, y + TRADE_TAB_Y,
+                TRADE_TAB_W, TRADE_TAB_H, tradeTab == TradeTab.CARDS);
+        drawTabButton(p, "Cheat Sheets", x + TRADE_TAB_X + TRADE_TAB_W + TRADE_TAB_GAP, y + TRADE_TAB_Y,
+                TRADE_TAB_W, TRADE_TAB_H, tradeTab == TradeTab.CHEAT_SHEETS);
+    }
+
+    private void drawTabButton(PApplet p, String label, int x, int y, int w, int h, boolean active) {
+        p.fill(active ? C_ACCENT : 0xFFE8E4F0);
+        p.stroke(active ? C_ACCENT : 0xFFBBB0CC);
+        p.strokeWeight(1.5f);
+        p.rect(x, y, w, h, 6);
+        p.strokeWeight(1);
+        p.fill(active ? 255 : 90);
+        useFont(p, 12);
+        p.textAlign(PApplet.CENTER, PApplet.CENTER);
+        p.text(label, x + w / 2f, y + h / 2f);
+    }
+
+    private void drawCardsTab(PApplet p, int x, int y) {
         p.textAlign(PApplet.LEFT, PApplet.CENTER);
         useFont(p, 12);
         p.fill(C_COMMON);
@@ -314,6 +369,54 @@ public class MenuScreen {
 
         drawScrollBar(p, x + TRADE_W - TRADE_SCROLL_X_OFF, y + TRADE_CARDS_Y,
                 TRADE_CARDS_VIEW_H, maxTradeScroll(), tradeScroll);
+    }
+
+    private void drawCheatSheetsTab(PApplet p, int x, int y) {
+        p.textAlign(PApplet.LEFT, PApplet.CENTER);
+        useFont(p, 12);
+        p.fill(C_TEXT_MED);
+        p.text("Buy a cheat sheet to use in battle.", x + TRADE_LEGEND_X, y + TRADE_COMMON_Y);
+        p.text("Each costs gumballs — pick the one", x + TRADE_LEGEND_X, y + TRADE_RARE_Y);
+        p.text("that fits your strategy.", x + TRADE_LEGEND_X, y + TRADE_LEGEND_Y);
+
+        p.fill(C_TEXT_MED);
+        useFont(p, 13);
+        p.text("Gumballs: " + inventory.getGumballs(), x + TRADE_LEGEND_X, y + TRADE_GUMBALLS_Y);
+
+        p.fill(C_TEXT_SOFT); useFont(p, 12);
+        p.text(cheatShopMessage, x + TRADE_LEGEND_X, y + TRADE_MESSAGE_Y, 165, 60);
+
+        CheatSheetDefinition[] sheets = CheatSheetDefinition.ALL;
+        for (int i = 0; i < sheets.length; i++) {
+            int row = i / SHOP_SHEETS_PER_ROW;
+            int visibleRow = row - cheatShopScroll;
+            if (visibleRow < 0 || visibleRow >= SHOP_SHEET_ROWS_VISIBLE) continue;
+            int sx = x + TRADE_CARDS_X + (i % SHOP_SHEETS_PER_ROW) * SHOP_SHEET_COL_W;
+            int sy = y + TRADE_CARDS_Y + visibleRow * SHOP_SHEET_ROW_H;
+            drawShopSheet(p, sheets[i], sx, sy);
+        }
+
+        drawScrollBar(p, x + TRADE_W - TRADE_SCROLL_X_OFF, y + TRADE_CARDS_Y,
+                SHOP_SHEETS_VIEW_H, maxCheatShopScroll(), cheatShopScroll);
+    }
+
+    private void drawShopSheet(PApplet p, CheatSheetDefinition sheet, int x, int y) {
+        boolean canAfford = inventory.getGumballs() >= sheet.cost;
+
+        p.fill(sheet.fillColor); p.stroke(canAfford ? 130 : 190); p.strokeWeight(1.5f);
+        p.rect(x, y, SHOP_SHEET_W, SHOP_SHEET_H, 6);
+        p.strokeWeight(1);
+
+        p.fill(25); useFont(p, 12);
+        p.textAlign(PApplet.CENTER, PApplet.TOP);
+        p.text(sheet.name, x + SHOP_SHEET_W / 2f, y + 8, SHOP_SHEET_W - 10, 30);
+
+        p.fill(90); useFont(p, 10);
+        p.text(sheet.description, x + SHOP_SHEET_W / 2f, y + 38, SHOP_SHEET_W - 12, 32);
+
+        p.fill(canAfford ? 0xFF5A4800 : 0xFFAA8800); useFont(p, 11);
+        p.textAlign(PApplet.CENTER, PApplet.BOTTOM);
+        p.text((canAfford ? "Buy " : "Need ") + sheet.cost + " 🟡", x + SHOP_SHEET_W / 2f, y + SHOP_SHEET_H - 6);
     }
 
     // ── Draw: inventory window ────────────────────────────────────────────────
@@ -449,12 +552,42 @@ public class MenuScreen {
     private boolean handleTradeClick(int mx, int my) {
         int x = cx(TRADE_W), y = cy(TRADE_H);
         if (handleClose(mx, my, x, y, TRADE_W)) return true;
-        if (inside(mx, my, x + TRADE_LEGEND_X, y + TRADE_BTN_Y, TRADE_BTN_W, TRADE_BTN_H)) {
-            CardDefinition pulled = inventory.buyRandomCard();
-            tradeMessage = pulled != null
-                    ? "Got: " + pulled.name + " (" + pulled.rarity + ")  [" + pulled.subject + "]"
-                    : "Not enough gumballs!";
+
+        // Tab buttons
+        if (inside(mx, my, x + TRADE_TAB_X, y + TRADE_TAB_Y, TRADE_TAB_W, TRADE_TAB_H)) {
+            tradeTab = TradeTab.CARDS;
             return true;
+        }
+        if (inside(mx, my, x + TRADE_TAB_X + TRADE_TAB_W + TRADE_TAB_GAP, y + TRADE_TAB_Y,
+                TRADE_TAB_W, TRADE_TAB_H)) {
+            tradeTab = TradeTab.CHEAT_SHEETS;
+            return true;
+        }
+
+        if (tradeTab == TradeTab.CARDS) {
+            if (inside(mx, my, x + TRADE_LEGEND_X, y + TRADE_BTN_Y, TRADE_BTN_W, TRADE_BTN_H)) {
+                CardDefinition pulled = inventory.buyRandomCard();
+                tradeMessage = pulled != null
+                        ? "Got: " + pulled.name + " (" + pulled.rarity + ")  [" + pulled.subject + "]"
+                        : "Not enough gumballs!";
+                return true;
+            }
+        } else {
+            CheatSheetDefinition[] sheets = CheatSheetDefinition.ALL;
+            for (int i = 0; i < sheets.length; i++) {
+                int row = i / SHOP_SHEETS_PER_ROW;
+                int visibleRow = row - cheatShopScroll;
+                if (visibleRow < 0 || visibleRow >= SHOP_SHEET_ROWS_VISIBLE) continue;
+                int sx = x + TRADE_CARDS_X + (i % SHOP_SHEETS_PER_ROW) * SHOP_SHEET_COL_W;
+                int sy = y + TRADE_CARDS_Y + visibleRow * SHOP_SHEET_ROW_H;
+                if (inside(mx, my, sx, sy, SHOP_SHEET_W, SHOP_SHEET_H)) {
+                    boolean bought = inventory.buyCheatSheet(sheets[i]);
+                    cheatShopMessage = bought
+                            ? "Bought: " + sheets[i].name + "!"
+                            : "Not enough gumballs! Need " + sheets[i].cost + ".";
+                    return true;
+                }
+            }
         }
         return false;
     }
@@ -604,9 +737,9 @@ public class MenuScreen {
         p.textAlign(PApplet.CENTER, PApplet.CENTER);
         p.text(card.name, x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_NAME_POS);
 
-        // Subject
+        // Subject (wrapped to the card width so longer names like "Computer Science" don't overflow)
         p.fill(C_TEXT_SOFT); useFont(p, CARD_SUBJ_SIZE);
-        p.text(card.subject, x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_SUBJ_POS);
+        p.text(card.subject, x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_SUBJ_POS, w - 6, 22);
 
         // Damage
         p.fill(C_TEXT); useFont(p, CARD_DMG_SIZE);
@@ -634,6 +767,11 @@ public class MenuScreen {
     private int maxTradeScroll() {
         int rows = (int) Math.ceil(CardDefinition.ALL.length / (double) TRADE_CARDS_PER_ROW);
         return Math.max(0, rows - TRADE_CARD_ROWS_VISIBLE);
+    }
+
+    private int maxCheatShopScroll() {
+        int rows = (int) Math.ceil(CheatSheetDefinition.ALL.length / (double) SHOP_SHEETS_PER_ROW);
+        return Math.max(0, rows - SHOP_SHEET_ROWS_VISIBLE);
     }
 
     private int maxCheatScroll() {
