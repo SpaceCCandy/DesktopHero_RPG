@@ -8,6 +8,7 @@ import processing.core.PImage;
 import rpg.CardDefinition;
 import rpg.CardInventory;
 import rpg.CheatSheetDefinition;
+import rpg.EnemyDefinition;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,6 +47,7 @@ public class BattleScreen {
     private String enemyName = "Enemy";
     private Result result;
     private GameMap.EnemyType enemyType;
+    private EnemyDefinition enemyDef; // resolved weak/resist/special-move profile for the current enemy
     private String enemySpriteId; // optional override: shows the exact NPC sprite fought
     private boolean cheatUsedThisTurn = false;  // resets each turn
 
@@ -82,9 +84,13 @@ public class BattleScreen {
         enemyName      = raw.charAt(0) + raw.substring(1).toLowerCase();
         playerHealth   = PLAYER_MAX_HEALTH;
         energy         = MAX_ENERGY;
-        this.enemyMaxHealth = enemyMaxHealth;
-        enemyHealth    = enemyMaxHealth;
         enemyType      = type;
+        enemyDef       = EnemyDefinition.findByName(enemyName);
+        // Named generic types (Geek/Ace/Jock) have null baseHealth in the
+        // table — meaning "use whatever was passed in" (the distance-scaled
+        // random hallway health). Only fixed-health enemies override it.
+        this.enemyMaxHealth = (enemyDef.baseHealth != null) ? enemyDef.baseHealth : enemyMaxHealth;
+        enemyHealth    = this.enemyMaxHealth;
         enemySpriteId  = null; // cleared by default; set explicitly for story/named NPCs
         message        = "Choose an attack!";
         result         = Result.NONE;
@@ -92,8 +98,21 @@ public class BattleScreen {
         activeEffects.clear();
     }
 
-    /** Override the enemy display name (e.g. "Math Test"). */
-    public void setEnemyName(String name) { this.enemyName = name; }
+    /**
+     * Overrides the enemy display name (e.g. "Math Test", "Jamie") and
+     * re-resolves its combat profile (weak/resist subjects, fixed health if
+     * the chart specifies one, and any special move) from EnemyDefinition.
+     * Call this after reset() for any named story NPC so the real profile —
+     * not the generic Geek/Ace/Jock fallback — applies to the fight.
+     */
+    public void setEnemyName(String name) {
+        this.enemyName = name;
+        this.enemyDef  = EnemyDefinition.findByName(name);
+        if (enemyDef.baseHealth != null) {
+            this.enemyMaxHealth = enemyDef.baseHealth;
+            this.enemyHealth    = enemyDef.baseHealth;
+        }
+    }
 
     /**
      * Override which sprite is shown for the enemy in battle, using the same
@@ -206,8 +225,8 @@ public class BattleScreen {
         energy -= card.energyCost;
 
         float dmg = card.damage;
-        boolean effective = isEffective(card);
-        if (effective) dmg *= 1.25f;
+        float typeMult = effectivenessMultiplier(card);
+        dmg *= typeMult;
 
         // Apply any active player-damage-boosting effects (e.g. Industrial Revolution)
         float playerMult = currentPlayerDamageMultiplier();
@@ -222,8 +241,8 @@ public class BattleScreen {
             return;
         }
 
-        String bonus = effective ? " (SUPER EFFECTIVE!)" : "";
-        String boost = playerMult > 1f ? " (BOOSTED!)" : "";
+        String bonus = typeMult > 1f ? " (SUPER EFFECTIVE!)" : typeMult < 1f ? " (resisted...)" : "";
+        String boost = playerMult > 1f ? " (BOOSTED!)" : playerMult < 1f ? " (weakened!)" : "";
         tickActiveEffects();
         enemyAttack(SKIP_ENERGY_GAIN / 2, "Dealt " + finalDmg + bonus + boost + ".  ");
     }
@@ -244,23 +263,66 @@ public class BattleScreen {
 
         playerHealth -= finalDmg;
         String debuff = enemyMult < 1f ? " (weakened!)" : "";
+
+        // Special move roll — happens alongside the normal attack above, not
+        // instead of it, per a 10% chance each of the enemy's attack turns.
+        String specialMsg = maybeTriggerSpecialMove();
+
         if (playerHealth <= 0) {
             playerHealth = 0;
             message      = "You lost! Heading back...";
             result       = Result.PLAYER_LOST;
             return;
         }
-        message = prefix + enemyName + " dealt " + finalDmg + debuff + ".  Energy +" + energyGain + ".";
+        message = prefix + enemyName + " dealt " + finalDmg + debuff + ".  Energy +" + energyGain + "." + specialMsg;
     }
 
-    private boolean isEffective(CardDefinition card) {
-        if (enemyType == GameMap.EnemyType.GEEK)
-            return card.subject.equals("Computer Science") || card.subject.equals("Math") || card.subject.equals("Science");
-        if (enemyType == GameMap.EnemyType.ACE)
-            return card.subject.equals("History") || card.subject.equals("English");
-        if (enemyType == GameMap.EnemyType.JOCK)
-            return card.subject.equals("Gym");
-        return false;
+    /**
+     * Rolls EnemyDefinition.SPECIAL_MOVE_CHANCE (10%) for each special move
+     * the current enemy has. On a hit, applies that move's effect and
+     * returns a short message describing it; returns an empty string if the
+     * enemy has no special moves or none triggered this turn.
+     */
+    private String maybeTriggerSpecialMove() {
+        if (enemyDef == null || enemyDef.specialMoves.length == 0) return "";
+        StringBuilder msg = new StringBuilder();
+        for (EnemyDefinition.SpecialMove move : enemyDef.specialMoves) {
+            if (Math.random() >= EnemyDefinition.SPECIAL_MOVE_CHANCE) continue;
+            switch (move.type) {
+                case SELF_HEAL:
+                    int healAmt = Math.round(move.magnitude);
+                    enemyHealth = Math.min(enemyMaxHealth, enemyHealth + healAmt);
+                    msg.append("  ").append(enemyName).append(" healed ").append(healAmt).append(" HP!");
+                    break;
+                case SELF_DAMAGE_BUFF:
+                    activeEffects.add(new ActiveEffect(
+                            CheatSheetDefinition.EffectType.ENEMY_DAMAGE_MULT, move.magnitude, move.duration));
+                    msg.append("  ").append(enemyName).append(" is pumped up! Damage x")
+                            .append(move.magnitude).append(" for ").append(move.duration).append(" turns!");
+                    break;
+                case WEAKEN_PLAYER:
+                    activeEffects.add(new ActiveEffect(
+                            CheatSheetDefinition.EffectType.PLAYER_DAMAGE_MULT, move.magnitude, move.duration));
+                    msg.append("  ").append(enemyName).append(" rattled you! Your damage x")
+                            .append(move.magnitude).append(" for ").append(move.duration).append(" turns!");
+                    break;
+            }
+        }
+        return msg.toString();
+    }
+
+    /**
+     * Returns the damage multiplier for a card against the current enemy,
+     * based on the bidirectional weak/resist table in EnemyDefinition:
+     * 1.25x if the card's subject is something the enemy is weak to,
+     * 0.75x if it's something the enemy resists, 1.0x otherwise. Falls back
+     * to a neutral 1.0x if no enemy profile has been resolved yet.
+     */
+    private float effectivenessMultiplier(CardDefinition card) {
+        if (enemyDef == null) return 1f;
+        if (enemyDef.weakTo.contains(card.subject)) return 1.25f;
+        if (enemyDef.resistantTo.contains(card.subject)) return 0.75f;
+        return 1f;
     }
 
     // ── Status effects (multi-turn cheat sheet buffs/debuffs) ──────────────────
@@ -517,9 +579,7 @@ public class BattleScreen {
 
         p.textFont(font);
         p.fill(25);
-        p.textAlign(PApplet.CENTER, PApplet.CENTER);
-        p.textSize(11);
-        p.text(card.name, x + CARD_W / 2f, y + 23);
+        drawFittedCardName(p, card.name, x + CARD_W / 2f, y + 23, CARD_W - 10, 18, 11);
         p.fill(110);
         p.textSize(10);
         p.text(card.subject, x + CARD_W / 2f, y + 40, CARD_W - 8, 18);
@@ -528,6 +588,31 @@ public class BattleScreen {
         p.text(card.damage + " dmg", x + CARD_W / 2f - 22, y + 60);
         p.fill(80, 60, 140);
         p.text(card.energyCost + " ⚡", x + CARD_W / 2f + 30, y + 60);
+    }
+
+    /**
+     * Draws a card title centered in a box, shrinking the font size until it
+     * fits on one line, or wrapping it within the box if even the smallest
+     * allowed size still doesn't fit — so long names never spill past the
+     * card's edges.
+     */
+    private void drawFittedCardName(PApplet p, String text, float cx, float cy,
+                                    float maxWidth, float maxHeight, int startSize) {
+        int minSize = 8;
+        p.textAlign(PApplet.CENTER, PApplet.CENTER);
+
+        int size = startSize;
+        p.textSize(size);
+        while (size > minSize && p.textWidth(text) > maxWidth) {
+            size--;
+            p.textSize(size);
+        }
+
+        if (p.textWidth(text) <= maxWidth) {
+            p.text(text, cx, cy);
+        } else {
+            p.text(text, cx, cy, maxWidth, maxHeight);
+        }
     }
 
     private void drawSkipButton(PApplet p, int x, int y) {

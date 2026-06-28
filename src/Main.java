@@ -37,8 +37,25 @@ public class Main extends PApplet {
     private GameState gameState;
     private SoundManager sound;
 
+    private Float savedPlayerX;
+    private Float savedPlayerY;
+    private int lastPositionSaveMillis;
+    private static final int POSITION_SAVE_INTERVAL_MS = 5000; // autosave position every 5s
+
     public static void main(String[] args) {
         PApplet.main("Main");
+    }
+
+    @Override
+    public void exit() {
+        // Best-effort final save so a normal window close doesn't lose any
+        // movement since the last periodic autosave. This won't catch a
+        // force-quit or IDE "stop" button, but those are rare compared to
+        // closing the window normally.
+        if (player != null) {
+            savePlayerPosition();
+        }
+        super.exit();
     }
 
     @Override
@@ -50,7 +67,10 @@ public class Main extends PApplet {
     public void setup() {
         gameState = GameState.GAME;
         assets = new AssetManager(this);
-        player = new Player(this, 200, 300, assets.playerIdle, assets.playerWalk, assets.playerJump);
+        loadStoryProgression();
+        float startX = (savedPlayerX != null) ? savedPlayerX : 200;
+        float startY = (savedPlayerY != null) ? savedPlayerY : 300;
+        player = new Player(this, startX, startY, assets.playerIdle, assets.playerWalk, assets.playerJump);
         camera = new Camera();
         cardInventory = new CardInventory(this);
         gameMap = new GameMap(this, assets);
@@ -58,7 +78,6 @@ public class Main extends PApplet {
         battleScreen = new BattleScreen(cardInventory);
         battleScreen.setAssets(assets);
         dialogOverlay = new DialogOverlay();
-        loadStoryProgression();
         gameMap.setStoryProgression(storyProgression);
         menu.setTradingUnlocked(tradingUnlocked);
         sound = new SoundManager(this);
@@ -66,7 +85,9 @@ public class Main extends PApplet {
         menu.setSound(sound);
         sound.startMusic();
         lastFrameMillis = millis();
+        lastPositionSaveMillis = lastFrameMillis;
     }
+
 
     @Override
     public void draw() {
@@ -99,6 +120,11 @@ public class Main extends PApplet {
             GameMap.TerrainBlock plat = gameMap.getPlatformAt(player);
             if (plat != null) player.landOnPlatform(plat.surfaceY());
             camera.update(player);
+
+            if (now - lastPositionSaveMillis >= POSITION_SAVE_INTERVAL_MS) {
+                lastPositionSaveMillis = now;
+                savePlayerPosition();
+            }
         }
 
         pushMatrix();
@@ -238,6 +264,7 @@ public class Main extends PApplet {
         player.moveRight = false;
         battleScreen.reset(npc.getMaxHealth(), npc.getType());
         battleEndFrames = 0;
+        sound.startBattleMusic();
         gameState = GameState.BATTLE;
     }
 
@@ -281,6 +308,7 @@ public class Main extends PApplet {
         battleScreen.setEnemyName(activeStoryEvent.battleName);
         battleScreen.setEnemySpriteId(activeStoryEvent.spriteId);
         battleEndFrames = 0;
+        sound.startBattleMusic();
         gameState = GameState.BATTLE;
     }
 
@@ -297,6 +325,7 @@ public class Main extends PApplet {
         if (result == BattleScreen.Result.PLAYER_WON) {
             if (activeIsStoryBattle || activeIsMathTest) {
                 sound.playBling();
+                sound.stopBattleMusic();
                 completeStoryEvent();
                 return;
             }
@@ -311,6 +340,7 @@ public class Main extends PApplet {
             }
         }
 
+        sound.stopBattleMusic();
         activeFightNpc = null;
         activeStoryNpc = null;
         activeStoryEvent = null;
@@ -366,6 +396,8 @@ public class Main extends PApplet {
         String[] lines = loadStrings(STORY_SAVE_FILE);
         storyProgression = 0;
         tradingUnlocked = false;
+        savedPlayerX = null;
+        savedPlayerY = null;
         if (lines == null || lines.length == 0) return;
         storyProgression = Math.max(0, parseInt(lines[0], 0));
         if (lines.length > 1) {
@@ -377,13 +409,29 @@ public class Main extends PApplet {
             // progression step 6, so reaching that far means they've met him.
             tradingUnlocked = storyProgression >= 6;
         }
+        if (lines.length > 3) {
+            try {
+                savedPlayerX = Float.parseFloat(lines[2].trim());
+                savedPlayerY = Float.parseFloat(lines[3].trim());
+            } catch (NumberFormatException ignored) {
+                savedPlayerX = null;
+                savedPlayerY = null;
+            }
+        }
     }
 
     private void saveStoryProgression() {
         saveStrings(STORY_SAVE_FILE, new String[]{
                 String.valueOf(storyProgression),
-                tradingUnlocked ? "1" : "0"
+                tradingUnlocked ? "1" : "0",
+                String.valueOf(player.getX()),
+                String.valueOf(player.getY())
         });
+    }
+
+    /** Saves just the player's current position without touching story/trading state. */
+    private void savePlayerPosition() {
+        saveStoryProgression();
     }
 
     private DialogOverlay.Line line(String speaker, String text, String a, String b) {
@@ -418,7 +466,7 @@ public class Main extends PApplet {
                         new String[0], new String[0],
                         line("Dexter", "Yo, you actually passed?! I didn't think you'd make it through day one honestly.", "Gee, thanks.", "Neither did I."),
                         line("Dexter", "Keep your head down. Don't go asking where cards come from.", "Too late.", "Noted."));
-            case 4:
+            case 6:
                 return story("jock", "A hallway Jock is blocking the path.", true, GameMap.EnemyType.JOCK, 115, "Hallway Jock", 10, 0,
                         new String[0], new String[0],
                         line("Hallway Jock", "Aye freshman. You got a hall pass?", "It's lunch.", "Since when do Jocks care?"),
@@ -428,7 +476,7 @@ public class Main extends PApplet {
                         new String[0], new String[0], new String[]{"Extra Time"},
                         line("Ms. Patel", "Oh, a new face! Welcome to Deskintop High.", "It's... something.", "Why does everyone have cards?"),
                         item("Ms. Patel", "You received 1 Cheat Sheet: Extra Time."));
-            case 6:
+            case 4:
                 return story("rico", "Find Rico and ask about the card supply.", true, GameMap.EnemyType.GEEK, 135, "Rico", 15, 1,
                         new String[0], new String[0],
                         line("Rico", "Word travels fast. You want to know where cards come from?", "Obviously.", "What's the catch?"),

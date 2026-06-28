@@ -13,7 +13,7 @@ public class GameMap {
     private static final int    GROUND_Y           = 500;
     private static final int    CHUNK_W            = 900;
     private static final String SAVE_FILE          = "data/generated_map.csv";
-    private static final String MAP_VERSION        = "10"; // bumped: math-test door is now guaranteed to spawn
+    private static final String MAP_VERSION        = "11"; // bumped: hallway enemy health now scales with distance
     private static final int    SCHOOL_START_CHUNK = 3;
 
     // ── Terrain ───────────────────────────────────────────────────────────────
@@ -531,7 +531,9 @@ public class GameMap {
         schoolNpcs.add(new SchoolNpc(chunk, walkX, SCHOOL_FLOOR_Y, 0, true, rng.nextInt(WALKING_NPC_TRAVEL)));
     }
 
-    /** Spawn fightable typed NPCs — only in school chunks. */
+    /** Spawn fightable typed NPCs — only in school chunks. Health scales up the
+     *  deeper into the school the chunk is, starting around 70 near the
+     *  entrance and growing as the player progresses further in. */
     private void ensureFightNpcsForChunk(int chunk) {
         if (chunk < SCHOOL_START_CHUNK) return;
         int count = 0;
@@ -541,9 +543,16 @@ public class GameMap {
         Random      rng   = new Random(9000L + chunk * 55147L);
         EnemyType[] types = EnemyType.values();
 
+        int distance = Math.max(0, chunk - SCHOOL_START_CHUNK);
+        // Base 70 HP at the entrance, +6 HP per chunk deeper in, capped so it
+        // doesn't spiral indefinitely for very long play sessions, plus a
+        // small random variance so encounters within the same chunk aren't
+        // all identical.
+        int scaledBase = Math.min(70 + distance * 6, 260);
+
         while (count < FIGHT_NPCS_PER_CHUNK) {
             float     nx = chunk * CHUNK_W + 160 + count * 220 + rng.nextInt(80);
-            int       hp = 70 + rng.nextInt(81);
+            int       hp = scaledBase + rng.nextInt(31); // + 0-30 variance
             EnemyType t  = types[rng.nextInt(types.length)];
             fightNpcs.add(new FightNpc(chunk, nx, GROUND_Y, false, hp, t));
             count++;

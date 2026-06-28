@@ -1,23 +1,28 @@
 V,4
-G,110
-B,Textbook
-B,Senior Skip Day
-B,Gaslight
-B,Textbook
-B,Textbook
+G,40
+B,Bonus answers
+B,Bonus answers
 B,Studying
+B,ChatGPT
+B,Studying
+B,Johnny's Deodorant
+B,Textbook
+B,Long Division
+B,Billy tuants
+B,Comma Splice
 B,Textbook
 B,Textbook
-B,Emotional Damage
-B,MAGIC WAND
 B,Pop Quiz
-B,Punching Ghost
-B,Show Your Work
-B,Textbook
-B,WannaCry
-E,0,Studying
-E,1,Bonus answers
-E,2,ChatGPT
-E,3,Textbook
-CS,Extra Time
-CS,Process of Elimination
+B,Pi day
+B,Pop Quiz
+B,Pop Quiz
+B,Pop Quiz
+E,0,Emotional Damage
+E,1,Punching Ghost
+E,2,Emotional Damage
+E,3,Emotional Damage
+SHOPT,1782616950916
+SHOPS,Did It All
+SHOPS,Symbolism
+SHOPS,Curve
+SHOPS,Sugar Rush

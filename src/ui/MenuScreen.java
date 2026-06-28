@@ -156,7 +156,6 @@ public class MenuScreen {
     private int     inventoryScroll;
     private int     cheatScroll;
     private int     tradeScroll;
-    private int     cheatShopScroll;
 
     private boolean tradingUnlocked;
     private String  lockedMessage;
@@ -247,12 +246,8 @@ public class MenuScreen {
             return;
         }
 
-        if (activeWindow == Window.TRADE) {
-            if (tradeTab == TradeTab.CARDS) {
-                tradeScroll = PApplet.constrain(tradeScroll + dir, 0, maxTradeScroll());
-            } else {
-                cheatShopScroll = PApplet.constrain(cheatShopScroll + dir, 0, maxCheatShopScroll());
-            }
+        if (activeWindow == Window.TRADE && tradeTab == TradeTab.CARDS) {
+            tradeScroll = PApplet.constrain(tradeScroll + dir, 0, maxTradeScroll());
         }
     }
 
@@ -376,8 +371,9 @@ public class MenuScreen {
         useFont(p, 12);
         p.fill(C_TEXT_MED);
         p.text("Buy a cheat sheet to use in battle.", x + TRADE_LEGEND_X, y + TRADE_COMMON_Y);
-        p.text("Each costs gumballs — pick the one", x + TRADE_LEGEND_X, y + TRADE_RARE_Y);
-        p.text("that fits your strategy.", x + TRADE_LEGEND_X, y + TRADE_LEGEND_Y);
+        p.text("The selection rotates — refreshes in:", x + TRADE_LEGEND_X, y + TRADE_RARE_Y);
+        p.fill(C_ACCENT);
+        p.text(formatShopCountdown(inventory.getShopRefreshMillisRemaining()), x + TRADE_LEGEND_X, y + TRADE_LEGEND_Y);
 
         p.fill(C_TEXT_MED);
         useFont(p, 13);
@@ -386,18 +382,23 @@ public class MenuScreen {
         p.fill(C_TEXT_SOFT); useFont(p, 12);
         p.text(cheatShopMessage, x + TRADE_LEGEND_X, y + TRADE_MESSAGE_Y, 165, 60);
 
-        CheatSheetDefinition[] sheets = CheatSheetDefinition.ALL;
-        for (int i = 0; i < sheets.length; i++) {
+        List<CheatSheetDefinition> sheets = inventory.getShopOffers();
+        for (int i = 0; i < sheets.size(); i++) {
             int row = i / SHOP_SHEETS_PER_ROW;
-            int visibleRow = row - cheatShopScroll;
-            if (visibleRow < 0 || visibleRow >= SHOP_SHEET_ROWS_VISIBLE) continue;
             int sx = x + TRADE_CARDS_X + (i % SHOP_SHEETS_PER_ROW) * SHOP_SHEET_COL_W;
-            int sy = y + TRADE_CARDS_Y + visibleRow * SHOP_SHEET_ROW_H;
-            drawShopSheet(p, sheets[i], sx, sy);
+            int sy = y + TRADE_CARDS_Y + row * SHOP_SHEET_ROW_H;
+            drawShopSheet(p, sheets.get(i), sx, sy);
         }
+        // No scrollbar needed — exactly SHOP_SLOT_COUNT (4) sheets are shown
+        // at once, which fits the visible grid (2x2) with no overflow.
+    }
 
-        drawScrollBar(p, x + TRADE_W - TRADE_SCROLL_X_OFF, y + TRADE_CARDS_Y,
-                SHOP_SHEETS_VIEW_H, maxCheatShopScroll(), cheatShopScroll);
+    /** Formats milliseconds remaining as "MMm SSs" for the shop refresh countdown. */
+    private String formatShopCountdown(long millisRemaining) {
+        long totalSeconds = millisRemaining / 1000;
+        long minutes = totalSeconds / 60;
+        long seconds = totalSeconds % 60;
+        return String.format("%dm %02ds", minutes, seconds);
     }
 
     private void drawShopSheet(PApplet p, CheatSheetDefinition sheet, int x, int y) {
@@ -573,18 +574,17 @@ public class MenuScreen {
                 return true;
             }
         } else {
-            CheatSheetDefinition[] sheets = CheatSheetDefinition.ALL;
-            for (int i = 0; i < sheets.length; i++) {
+            List<CheatSheetDefinition> sheets = inventory.getShopOffers();
+            for (int i = 0; i < sheets.size(); i++) {
                 int row = i / SHOP_SHEETS_PER_ROW;
-                int visibleRow = row - cheatShopScroll;
-                if (visibleRow < 0 || visibleRow >= SHOP_SHEET_ROWS_VISIBLE) continue;
                 int sx = x + TRADE_CARDS_X + (i % SHOP_SHEETS_PER_ROW) * SHOP_SHEET_COL_W;
-                int sy = y + TRADE_CARDS_Y + visibleRow * SHOP_SHEET_ROW_H;
+                int sy = y + TRADE_CARDS_Y + row * SHOP_SHEET_ROW_H;
                 if (inside(mx, my, sx, sy, SHOP_SHEET_W, SHOP_SHEET_H)) {
-                    boolean bought = inventory.buyCheatSheet(sheets[i]);
+                    CheatSheetDefinition sheet = sheets.get(i);
+                    boolean bought = inventory.buyCheatSheet(sheet);
                     cheatShopMessage = bought
-                            ? "Bought: " + sheets[i].name + "!"
-                            : "Not enough gumballs! Need " + sheets[i].cost + ".";
+                            ? "Bought: " + sheet.name + "!"
+                            : "Not enough gumballs! Need " + sheet.cost + ".";
                     return true;
                 }
             }
@@ -732,13 +732,18 @@ public class MenuScreen {
         p.fill(card.strokeColor); p.noStroke();
         p.rect(x + 1, y + 1, w - 2, CARD_STRIP_H, CARD_RADIUS, CARD_RADIUS, 0, 0);
 
-        // Name
-        p.fill(C_TEXT); useFont(p, CARD_NAME_SIZE);
-        p.textAlign(PApplet.CENTER, PApplet.CENTER);
-        p.text(card.name, x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_NAME_POS);
+        // Name — auto-fit so the full title always stays inside the card,
+        // shrinking the font and/or wrapping onto a second line as needed
+        // instead of letting long names like "Shakespearean Insult" overflow.
+        p.fill(C_TEXT);
+        float nameAreaW = w - 8;
+        float nameAreaH = (h - CARD_STRIP_H) * (CARD_SUBJ_POS - CARD_NAME_POS) + 4;
+        float nameCenterY = y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_NAME_POS;
+        drawFittedText(p, card.name, x + w / 2f, nameCenterY, nameAreaW, nameAreaH, CARD_NAME_SIZE);
 
         // Subject (wrapped to the card width so longer names like "Computer Science" don't overflow)
         p.fill(C_TEXT_SOFT); useFont(p, CARD_SUBJ_SIZE);
+        p.textAlign(PApplet.CENTER, PApplet.CENTER);
         p.text(card.subject, x + w / 2f, y + CARD_STRIP_H + (h - CARD_STRIP_H) * CARD_SUBJ_POS, w - 6, 22);
 
         // Damage
@@ -747,6 +752,37 @@ public class MenuScreen {
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
+
+    /**
+     * Draws text centered in a box, shrinking the font size step by step
+     * until the text fits within maxWidth on one line, or — if even the
+     * smallest allowed size still doesn't fit on one line — wraps it onto
+     * multiple lines within the given box instead of letting it spill past
+     * the card's edges.
+     */
+    private void drawFittedText(PApplet p, String text, float cx, float cy,
+                                float maxWidth, float maxHeight, int startSize) {
+        int minSize = 8;
+        p.textAlign(PApplet.CENTER, PApplet.CENTER);
+
+        int size = startSize;
+        useFont(p, size);
+        while (size > minSize && p.textWidth(text) > maxWidth) {
+            size--;
+            useFont(p, size);
+        }
+
+        if (p.textWidth(text) <= maxWidth) {
+            // Fits on one line at this size — draw it plainly, no wrap box
+            // needed (a wrap box at this size could still vertically center
+            // oddly for short text, so single-line stays unboxed).
+            p.text(text, cx, cy);
+        } else {
+            // Still too wide even at the smallest size — wrap onto multiple
+            // lines within the available box rather than overflowing.
+            p.text(text, cx, cy, maxWidth, maxHeight);
+        }
+    }
 
     private void ensureFont(PApplet p) {
         if (font == null) font = p.createFont("Comic Sans MS", 14, true);
@@ -767,11 +803,6 @@ public class MenuScreen {
     private int maxTradeScroll() {
         int rows = (int) Math.ceil(CardDefinition.ALL.length / (double) TRADE_CARDS_PER_ROW);
         return Math.max(0, rows - TRADE_CARD_ROWS_VISIBLE);
-    }
-
-    private int maxCheatShopScroll() {
-        int rows = (int) Math.ceil(CheatSheetDefinition.ALL.length / (double) SHOP_SHEETS_PER_ROW);
-        return Math.max(0, rows - SHOP_SHEET_ROWS_VISIBLE);
     }
 
     private int maxCheatScroll() {
