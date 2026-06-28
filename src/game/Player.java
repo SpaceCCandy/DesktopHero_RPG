@@ -110,7 +110,7 @@ public class Player {
         }
 
         float footY = y + height;
-        scaleProgress = Math.min(1f, scaleProgress + 0.035f);
+        scaleProgress = Math.min(1f, scaleProgress + 0.08f);
         float eased = scaleProgress * scaleProgress;
         scale = scaleStart + (scaleTarget - scaleStart) * eased;
         width = baseWidth * scale;
@@ -118,11 +118,13 @@ public class Player {
         y = footY - height;
     }
 
-    public void jump() {
+    public boolean jump() {
 
         if(grounded) {
             velY = jumpForce;
+            return true;
         }
+        return false;
     }
 
     public void landOnPlatform(float platformY) {
@@ -163,13 +165,13 @@ public class Player {
             return velY < 0 ? jumpSprite : walkSprites[2];
         }
         if (!moveLeft && !moveRight) return idleSprite;
-        int frame = (animationTick / 8) % walkSprites.length;
+        int frame = (animationTick / 5) % walkSprites.length;
         PImage s = walkSprites[frame];
         return s != null ? s : idleSprite;
     }
 
     public PImage getCurrentSprite() {
-        int frame = (animationTick / 8) % walkSprites.length;
+        int frame = (animationTick / 5) % walkSprites.length;
         PImage walkSprite = walkSprites[frame];
 
         if (velY < 0) {

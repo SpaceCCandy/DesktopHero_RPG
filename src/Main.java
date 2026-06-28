@@ -2,30 +2,60 @@ import game.AssetManager;
 import game.Camera;
 import game.GameMap;
 import game.Player;
+import game.SoundManager;
 import processing.core.PApplet;
 import processing.event.MouseEvent;
+import rpg.CardDefinition;
 import rpg.CardInventory;
 import systems.GameState;
 import ui.BattleScreen;
+import ui.DialogOverlay;
 import ui.MenuScreen;
 
 public class Main extends PApplet {
-    private AssetManager assets;
+    private static final String STORY_SAVE_FILE = "data/story_progress.csv";
 
+    private AssetManager assets;
     private Player player;
     private Camera camera;
     private GameMap gameMap;
     private MenuScreen menu;
     private BattleScreen battleScreen;
+    private DialogOverlay dialogOverlay;
     private CardInventory cardInventory;
-    private GameMap.Npc activeNpc;
+
+    private GameMap.FightNpc activeFightNpc;
+    private GameMap.StoryNpc activeStoryNpc;
+    private StoryEvent activeStoryEvent;
+    private boolean activeIsStoryBattle;
+    private boolean activeIsMathTest;
+
     private int battleEndFrames;
     private int lastFrameMillis;
-
+    private int storyProgression;
+    private boolean tradingUnlocked;
     private GameState gameState;
+    private SoundManager sound;
+
+    private Float savedPlayerX;
+    private Float savedPlayerY;
+    private int lastPositionSaveMillis;
+    private static final int POSITION_SAVE_INTERVAL_MS = 5000; // autosave position every 5s
 
     public static void main(String[] args) {
         PApplet.main("Main");
+    }
+
+    @Override
+    public void exit() {
+        // Best-effort final save so a normal window close doesn't lose any
+        // movement since the last periodic autosave. This won't catch a
+        // force-quit or IDE "stop" button, but those are rare compared to
+        // closing the window normally.
+        if (player != null) {
+            savePlayerPosition();
+        }
+        super.exit();
     }
 
     @Override
@@ -35,174 +65,540 @@ public class Main extends PApplet {
 
     @Override
     public void setup() {
-
         gameState = GameState.GAME;
         assets = new AssetManager(this);
-
-        player = new Player(
-                this, 200, 300,
-                assets.playerIdle,
-                assets.playerWalk,   // ← jump second
-                assets.playerJump
-        );
-
+        loadStoryProgression();
+        float startX = (savedPlayerX != null) ? savedPlayerX : 200;
+        float startY = (savedPlayerY != null) ? savedPlayerY : 300;
+        player = new Player(this, startX, startY, assets.playerIdle, assets.playerWalk, assets.playerJump);
         camera = new Camera();
-
         cardInventory = new CardInventory(this);
         gameMap = new GameMap(this, assets);
         menu = new MenuScreen(cardInventory);
         battleScreen = new BattleScreen(cardInventory);
+        battleScreen.setAssets(assets);
+        dialogOverlay = new DialogOverlay();
+        gameMap.setStoryProgression(storyProgression);
+        menu.setTradingUnlocked(tradingUnlocked);
+        sound = new SoundManager(this);
+        sound.init();
+        menu.setSound(sound);
+        sound.startMusic();
         lastFrameMillis = millis();
+        lastPositionSaveMillis = lastFrameMillis;
     }
+
 
     @Override
     public void draw() {
-
-        if(gameState == GameState.BATTLE) {
+        if (gameState == GameState.BATTLE) {
             battleScreen.draw(this);
             finishBattleAfterDelay();
             return;
         }
 
-        if(gameState != GameState.GAME) {
+        if (gameState == GameState.DIALOG) {
+            drawGameWorld(false);
+            dialogOverlay.draw(this);
             return;
         }
 
-        int now = millis();
-        float frameScale = (now - lastFrameMillis) / (1000f / 60f);
-        lastFrameMillis = now;
+        if (gameState != GameState.GAME) return;
+        drawGameWorld(true);
+    }
 
-        player.setSchoolZoom(gameMap.isSchoolX(player.getX() + player.getWidth() / 2f));
-        player.update(frameScale);
-        gameMap.blockBuildingCoveredJumps(player);
+    private void drawGameWorld(boolean updateWorld) {
+        if (updateWorld) {
+            int now = millis();
+            float frameScale = (now - lastFrameMillis) / (1000f / 60f);
+            lastFrameMillis = now;
 
-        GameMap.TerrainBlock plat = gameMap.getPlatformAt(player);
-        if (plat != null) {
-            player.landOnPlatform(plat.surfaceY());
+            player.setSchoolZoom(gameMap.isSchoolX(player.getX() + player.getWidth() / 2f));
+            player.update(frameScale);
+            gameMap.blockBuildingCoveredJumps(player);
+
+            GameMap.TerrainBlock plat = gameMap.getPlatformAt(player);
+            if (plat != null) player.landOnPlatform(plat.surfaceY());
+            camera.update(player);
+
+            if (now - lastPositionSaveMillis >= POSITION_SAVE_INTERVAL_MS) {
+                lastPositionSaveMillis = now;
+                savePlayerPosition();
+            }
         }
 
-        camera.update(player);
-
         pushMatrix();
-
         float worldZoom = 1f + (player.getScale() - 1f) * 0.35f;
         translate(width / 2f, 500);
         scale(worldZoom);
         translate(-width / 2f, -500);
         translate(-camera.getX(), 0);
-
         gameMap.renderBehindPlayer(camera.getX(), width, player);
-
         player.render();
-
         gameMap.renderInFrontOfPlayer(camera.getX(), width, player);
-
         popMatrix();
 
+        drawQuestTargetPointer(worldZoom);
         gameMap.drawInteractionPrompt(player);
+        drawQuestPanel();
         menu.draw(this);
+    }
 
+    /**
+     * Draws a pulsing arrow at the left or right edge of the screen pointing
+     * toward the current quest target (the next story NPC, or the math-test
+     * door) whenever that target exists but isn't visible on screen yet. This
+     * helps players who are several screens away from their next objective
+     * find the right direction to walk, instead of wandering randomly through
+     * the school.
+     */
+    private void drawQuestTargetPointer(float worldZoom) {
+        if (gameState != GameState.GAME) return;
+        float[] target = gameMap.getQuestTargetWorldPos();
+        if (target == null) return;
+
+        // Same transform chain used to render the world, applied to a single point,
+        // so the pointer lines up correctly regardless of camera position or zoom.
+        float screenX = width / 2f + (target[0] - camera.getX() - width / 2f) * worldZoom;
+
+        float margin = 36;
+        boolean offLeft  = screenX < margin;
+        boolean offRight = screenX > width - margin;
+        if (!offLeft && !offRight) return; // already visible on screen — the in-world arrow handles it
+
+        float arrowY = 300;
+        float pulse = 0.5f + 0.5f * sin(frameCount * 0.1f);
+        float edgeX = offLeft ? margin : width - margin;
+        float dir = offLeft ? -1 : 1;
+        float tipX = edgeX + dir * pulse * 6;
+
+        pushStyle();
+        noStroke();
+        fill(80, 180, 255, 230);
+        triangle(tipX, arrowY, tipX - dir * 22, arrowY - 14, tipX - dir * 22, arrowY + 14);
+        fill(30);
+        textAlign(CENTER, CENTER);
+        textSize(12);
+        text("Next: " + questTargetLabel(), edgeX - dir * 30, arrowY + 30);
+        popStyle();
+    }
+
+    private String questTargetLabel() {
+        return storyEvent(storyProgression).battleName;
     }
 
     @Override
     public void keyPressed() {
+        if (gameState != GameState.GAME) return;
 
-        if(gameState != GameState.GAME) {
+        if (key == 'e' || key == 'E') {
+            interactIfNear();
             return;
         }
-
-        if(key == 'e' || key == 'E') {
-            startBattleIfNearNpc();
-            return;
-        }
-
-        if(key == 'a' || key == 'A') {
-            player.moveLeft = true;
-        }
-
-        if(key == 'd' || key == 'D') {
-            player.moveRight = true;
-        }
-
-        if(key == 'w' || key == 'W') {
-            player.jump();
+        if (key == 'a' || key == 'A') player.moveLeft = true;
+        if (key == 'd' || key == 'D') player.moveRight = true;
+        if (key == 'w' || key == 'W') {
+            if (player.jump()) sound.playJump();
         }
     }
 
     @Override
     public void keyReleased() {
-
-        if(gameState != GameState.GAME) {
-            return;
-        }
-
-        if(key == 'a' || key == 'A') {
-            player.moveLeft = false;
-        }
-
-        if(key == 'd' || key == 'D') {
-            player.moveRight = false;
-        }
+        if (gameState != GameState.GAME) return;
+        if (key == 'a' || key == 'A') player.moveLeft = false;
+        if (key == 'd' || key == 'D') player.moveRight = false;
     }
 
+    @Override
     public void mousePressed() {
-        if(gameState == GameState.BATTLE) {
+        if (gameState == GameState.BATTLE) {
             battleScreen.mousePressed(mouseX, mouseY);
             return;
         }
-
+        if (gameState == GameState.DIALOG) {
+            dialogOverlay.mousePressed(mouseX, mouseY, width, height);
+            handleDialogOutcome();
+            return;
+        }
         menu.mousePressed(mouseX, mouseY);
     }
 
     public void mouseWheel(MouseEvent event) {
-        menu.mouseWheel(event.getCount());
+        menu.mouseWheel(event.getCount(), mouseX, mouseY);
     }
 
-    private void startBattleIfNearNpc() {
-        GameMap.Npc nearbyNpc = gameMap.findNearbyNpc(player);
+    @Override
+    public void mouseDragged() {
+        if (gameState != GameState.GAME && gameState != GameState.DIALOG) return;
+        menu.mouseDragged(mouseX, mouseY);
+    }
 
-        if (nearbyNpc == null) {
+    @Override
+    public void mouseReleased() {
+        menu.mouseReleased();
+    }
+
+    private void interactIfNear() {
+        GameMap.StoryNpc storyNpc = gameMap.findNearbyStoryNpc(player);
+        if (storyNpc != null) {
+            startStoryDialog(storyNpc.getProgressionStep(), storyNpc);
             return;
         }
 
-        startBattle(nearbyNpc);
+        if (gameMap.isNearMathTestDoor(player)) {
+            startStoryDialog(1, null);
+            return;
+        }
+
+        GameMap.FightNpc npc = gameMap.findNearbyFightNpc(player);
+        if (npc != null) startBattle(npc);
     }
 
-    private void startBattle(GameMap.Npc npc) {
-        activeNpc = npc;
+    private void startBattle(GameMap.FightNpc npc) {
+        activeFightNpc = npc;
+        activeStoryNpc = null;
+        activeStoryEvent = null;
+        activeIsStoryBattle = false;
+        activeIsMathTest = false;
         player.moveLeft = false;
         player.moveRight = false;
-        battleScreen.reset(npc.getMaxHealth(), npc.getType());  // updated
+        battleScreen.reset(npc.getMaxHealth(), npc.getType());
         battleEndFrames = 0;
+        sound.startBattleMusic();
+        gameState = GameState.BATTLE;
+    }
+
+    private void startStoryDialog(int step, GameMap.StoryNpc npc) {
+        activeStoryNpc = npc;
+        activeFightNpc = null;
+        activeStoryEvent = storyEvent(step);
+        activeIsStoryBattle = false;
+        activeIsMathTest = step == 1;
+        player.moveLeft = false;
+        player.moveRight = false;
+        if (npc != null && "rico".equals(npc.getSpriteId())) unlockTrading();
+        dialogOverlay.start(activeStoryEvent.lines, assets.storySprite(activeStoryEvent.spriteId));
+        gameState = GameState.DIALOG;
+    }
+
+    private void unlockTrading() {
+        if (tradingUnlocked) return;
+        tradingUnlocked = true;
+        saveStoryProgression();
+        menu.setTradingUnlocked(true);
+    }
+
+    private void handleDialogOutcome() {
+        DialogOverlay.Outcome outcome = dialogOverlay.getOutcome();
+        if (outcome == DialogOverlay.Outcome.NONE) return;
+        if (outcome == DialogOverlay.Outcome.START_FIGHT) {
+            startStoryBattle();
+        } else {
+            completeStoryEvent();
+        }
+    }
+
+    private void startStoryBattle() {
+        if (activeStoryEvent == null) {
+            gameState = GameState.GAME;
+            return;
+        }
+        activeIsStoryBattle = true;
+        battleScreen.reset(activeStoryEvent.enemyHealth, activeStoryEvent.enemyType);
+        battleScreen.setEnemyName(activeStoryEvent.battleName);
+        battleScreen.setEnemySpriteId(activeStoryEvent.spriteId);
+        battleEndFrames = 0;
+        sound.startBattleMusic();
         gameState = GameState.BATTLE;
     }
 
     private void finishBattleAfterDelay() {
         BattleScreen.Result result = battleScreen.getResult();
-
         if (result == BattleScreen.Result.NONE) {
             battleEndFrames = 0;
             return;
         }
 
         battleEndFrames++;
-
-        if (battleEndFrames < 45) {
-            return;
-        }
+        if (battleEndFrames < 45) return;
 
         if (result == BattleScreen.Result.PLAYER_WON) {
-            gameMap.markDefeated(activeNpc);
+            if (activeIsStoryBattle || activeIsMathTest) {
+                sound.playBling();
+                sound.stopBattleMusic();
+                completeStoryEvent();
+                return;
+            }
 
-            GameMap.EnemyType type = battleScreen.getDefeatedEnemyType();
-            int reward = 10;
-            if (type == GameMap.EnemyType.ACE)  reward = 15;
-            if (type == GameMap.EnemyType.JOCK) reward = 20;
-            cardInventory.addGumballs(reward);
-            battleScreen.showGumballReward(reward); // NEW
+            if (activeFightNpc != null) {
+                gameMap.markDefeated(activeFightNpc);
+                int reward = 10;
+                if (activeFightNpc.getType() == GameMap.EnemyType.ACE) reward = 15;
+                if (activeFightNpc.getType() == GameMap.EnemyType.JOCK) reward = 20;
+                cardInventory.addGumballs(reward);
+                battleScreen.showGumballReward(reward);
+            }
         }
 
-        activeNpc = null;
+        sound.stopBattleMusic();
+        activeFightNpc = null;
+        activeStoryNpc = null;
+        activeStoryEvent = null;
+        activeIsStoryBattle = false;
+        activeIsMathTest = false;
+        lastFrameMillis = millis();
         gameState = GameState.GAME;
+    }
+
+    private void completeStoryEvent() {
+        if (activeStoryEvent != null) applyStoryReward(activeStoryEvent);
+        gameMap.advanceStoryNpc();
+        storyProgression++;
+        saveStoryProgression();
+        gameMap.setStoryProgression(storyProgression);
+        activeFightNpc = null;
+        activeStoryNpc = null;
+        activeStoryEvent = null;
+        activeIsStoryBattle = false;
+        activeIsMathTest = false;
+        lastFrameMillis = millis();
+        gameState = GameState.GAME;
+    }
+
+    private void applyStoryReward(StoryEvent event) {
+        if (event.gumballs > 0) cardInventory.addGumballs(event.gumballs);
+        for (int i = 0; i < event.randomCards; i++) cardInventory.addCard(CardDefinition.randomCard(this));
+        for (String cardName : event.namedCards) cardInventory.addCard(CardDefinition.findByName(cardName));
+        for (int i = 0; i < event.slotCards.length; i++) {
+            cardInventory.addCardToSlot(CardDefinition.findByName(event.slotCards[i]), i);
+        }
+        for (String sheetName : event.cheatSheets) {
+            cardInventory.addCheatSheet(rpg.CheatSheetDefinition.findByName(sheetName));
+        }
+    }
+
+    private void drawQuestPanel() {
+        StoryEvent event = storyEvent(storyProgression);
+        int x = width - 245;
+        int y = 18;
+        fill(255, 252, 235, 235);
+        stroke(70);
+        rect(x, y, 220, 76, 6);
+        fill(40);
+        textAlign(LEFT, TOP);
+        textSize(14);
+        text("Active Task", x + 14, y + 10);
+        textSize(12);
+        text(event.questText, x + 14, y + 34, 192, 34);
+    }
+
+    private void loadStoryProgression() {
+        String[] lines = loadStrings(STORY_SAVE_FILE);
+        storyProgression = 0;
+        tradingUnlocked = false;
+        savedPlayerX = null;
+        savedPlayerY = null;
+        if (lines == null || lines.length == 0) return;
+        storyProgression = Math.max(0, parseInt(lines[0], 0));
+        if (lines.length > 1) {
+            tradingUnlocked = "1".equals(lines[1].trim());
+        } else {
+            // Older save from before trading was locked behind Rico — infer
+            // the unlock so returning players aren't suddenly relocked out
+            // of a feature they already had. Rico's quest becomes active at
+            // progression step 6, so reaching that far means they've met him.
+            tradingUnlocked = storyProgression >= 6;
+        }
+        if (lines.length > 3) {
+            try {
+                savedPlayerX = Float.parseFloat(lines[2].trim());
+                savedPlayerY = Float.parseFloat(lines[3].trim());
+            } catch (NumberFormatException ignored) {
+                savedPlayerX = null;
+                savedPlayerY = null;
+            }
+        }
+    }
+
+    private void saveStoryProgression() {
+        saveStrings(STORY_SAVE_FILE, new String[]{
+                String.valueOf(storyProgression),
+                tradingUnlocked ? "1" : "0",
+                String.valueOf(player.getX()),
+                String.valueOf(player.getY())
+        });
+    }
+
+    /** Saves just the player's current position without touching story/trading state. */
+    private void savePlayerPosition() {
+        saveStoryProgression();
+    }
+
+    private DialogOverlay.Line line(String speaker, String text, String a, String b) {
+        return new DialogOverlay.Line(speaker, text, new String[]{a, b}, null, false);
+    }
+
+    private DialogOverlay.Line item(String speaker, String text) {
+        return new DialogOverlay.Line(speaker, text, null, text, false);
+    }
+
+    private StoryEvent storyEvent(int step) {
+        switch (step) {
+            case 0:
+                return story("dexter", "Find Dexter in the school.", false, GameMap.EnemyType.GEEK, 80, "Dexter", 0, 0,
+                        new String[0], new String[]{"Studying", "Bonus answers", "ChatGPT", "Textbook"},
+                        line("Dexter", "Hey there! Haven't seen you around here before. You must be a freshman huh?", "Yeah, first day.", "Do I look that lost?"),
+                        line("Dexter", "Are you ready for that math test today? Got your cards ready?", "What cards?", "Cards?"),
+                        line("Dexter", "Your Knowledge Cards! Everyone here uses them. Here, take some of my spares.", "Thanks man.", "This school is already weird."),
+                        item("Dexter", "You received 4 Common Knowledge Cards. Tutorial unlocked."));
+            case 1:
+                return story("mathtest", "Find the purple classroom door and take the math test.", true, GameMap.EnemyType.GEEK, 130, "Math Test", 0, 2,
+                        new String[0], new String[0],
+                        line("Math Test", "The first test lands on your desk. No choice but to fight it.", "Start exam", "I was not ready"));
+            case 2:
+                return story("stacey", "Find Stacey in the school hallway.", false, GameMap.EnemyType.ACE, 90, "Stacey", 0, 0,
+                        new String[0], new String[0],
+                        line("Stacey", "Ugh, watch where you're going freshman.", "You bumped into ME.", "My bad."),
+                        line("Stacey", "Do you even have any cards? You look broke.", "I got enough.", "Why does everyone keep talking about cards?"),
+                        item("Stacey", "Stacey walks away flipping a Legendary card between her fingers."));
+            case 3:
+                return story("dexter", "Find Dexter for a quick check-in.", false, GameMap.EnemyType.GEEK, 80, "Dexter", 0, 0,
+                        new String[0], new String[0],
+                        line("Dexter", "Yo, you actually passed?! I didn't think you'd make it through day one honestly.", "Gee, thanks.", "Neither did I."),
+                        line("Dexter", "Keep your head down. Don't go asking where cards come from.", "Too late.", "Noted."));
+            case 6:
+                return story("jock", "A hallway Jock is blocking the path.", true, GameMap.EnemyType.JOCK, 115, "Hallway Jock", 10, 0,
+                        new String[0], new String[0],
+                        line("Hallway Jock", "Aye freshman. You got a hall pass?", "It's lunch.", "Since when do Jocks care?"),
+                        line("Hallway Jock", "Since I say so. You wanna get through? Beat me.", "Let's go.", "Fine."));
+            case 5:
+                return story("msPatel", "Find Ms. Patel.", false, GameMap.EnemyType.GEEK, 80, "Ms. Patel", 0, 0,
+                        new String[0], new String[0], new String[]{"Extra Time"},
+                        line("Ms. Patel", "Oh, a new face! Welcome to Deskintop High.", "It's... something.", "Why does everyone have cards?"),
+                        item("Ms. Patel", "You received 1 Cheat Sheet: Extra Time."));
+            case 4:
+                return story("rico", "Find Rico and ask about the card supply.", true, GameMap.EnemyType.GEEK, 135, "Rico", 15, 1,
+                        new String[0], new String[0],
+                        line("Rico", "Word travels fast. You want to know where cards come from?", "Obviously.", "What's the catch?"),
+                        line("Rico", "Small catch. You gotta beat me first.", "Let's go.", "You serious?"));
+            case 7:
+                return story("rico", "Find Rico by the Lost & Found.", false, GameMap.EnemyType.GEEK, 80, "Rico", 0, 0,
+                        new String[0], new String[0],
+                        line("Rico", "See that machine? Drop gumballs in, pull a card out. Nobody knows who stocks it.", "Who's The Val?", "How many gumballs?"),
+                        item("Rico", "Lost & Found machine explained."));
+            case 8:
+                return story("mathtest", "Find the Science Test encounter.", true, GameMap.EnemyType.GEEK, 145, "Science Test", 10, 1,
+                        new String[0], new String[0],
+                        line("Science Test", "Another exam. This one smells like lab chemicals and panic.", "Begin.", "Here we go."));
+            case 9:
+                return story("stacey", "Find Stacey again.", false, GameMap.EnemyType.ACE, 80, "Stacey", 0, 0,
+                        new String[0], new String[0],
+                        line("Stacey", "You're still here. Huh.", "Surprised?", "Miss me?"),
+                        item("Stacey", "She warns you: this school chews people up."));
+            case 10:
+                return story("jamie", "Find Jamie, Marcus's lieutenant.", true, GameMap.EnemyType.GEEK, 160, "Jamie", 20, 2,
+                        new String[]{"Textbook"}, new String[0],
+                        line("Jamie", "You've been asking around about where the cards come from.", "Maybe.", "Who's asking?"),
+                        line("Jamie", "The Val doesn't like freshmen poking around. Walk away.", "Not a chance.", "Who's The Val?"),
+                        line("Jamie", "Wrong answer.", "Fight", "Bring it."));
+            case 11:
+                return story("msPatel", "Find Ms. Patel after class.", false, GameMap.EnemyType.GEEK, 80, "Ms. Patel", 0, 0,
+                        new String[]{"Textbook"}, new String[0],
+                        line("Ms. Patel", "Be careful. Whoever is at the top isn't someone to take lightly.", "Do you know who it is?", "Teachers know?"),
+                        item("Ms. Patel", "You received 1 Rare Card: Textbook."));
+            case 12:
+                return story("dexter", "Find Dexter. He looks nervous.", false, GameMap.EnemyType.GEEK, 80, "Dexter", 0, 0,
+                        new String[]{"Emotional Damage"}, new String[0],
+                        line("Dexter", "How do you know about The Val already?", "I beat Jamie.", "Jamie told me everything."),
+                        line("Dexter", "I used to work for him. He gets kids dependent, then pulls help before finals.", "Then I'll make myself worth it.", "Sounds like a plan."),
+                        item("Dexter", "You received 1 Legendary Card: Emotional Damage."));
+            case 13:
+                return story("mathtest", "Find the English Test.", true, GameMap.EnemyType.ACE, 155, "English Test", 15, 1,
+                        new String[0], new String[0],
+                        line("English Test", "The third exam starts. Something about this one feels orchestrated.", "Begin.", "No shortcuts."));
+            case 14:
+                return story("rico", "Find Rico to put the pieces together.", false, GameMap.EnemyType.GEEK, 80, "Rico", 0, 0,
+                        new String[0], new String[0], new String[]{"Process of Elimination"},
+                        line("Rico", "Marcus plants cheat sheets, gets people hooked, then pulls the rug.", "That's calculated.", "So what do we do?"),
+                        item("Rico", "You received 1 Cheat Sheet: Bonus Answers."));
+            case 15:
+                return story("stacey", "Find Stacey. Marcus sent her.", true, GameMap.EnemyType.ACE, 170, "Stacey", 25, 1,
+                        new String[0], new String[0],
+                        line("Stacey", "Marcus wanted me to deliver a message.", "Let me guess - back off?", "What message?"),
+                        line("Stacey", "Impressive. But this is where it ends.", "At least you're honest.", "For a card?"));
+            case 16:
+                return story("dexter", "Find Dexter before the final.", false, GameMap.EnemyType.GEEK, 80, "Dexter", 0, 0,
+                        new String[]{"Punching Ghost"}, new String[0],
+                        line("Dexter", "This is it huh. You're actually going after Marcus.", "Yeah.", "Someone has to."),
+                        item("Dexter", "You received 1 Legendary Card: Punching Ghost."));
+            case 17:
+                return story("announcement", "Listen to the announcement.", false, GameMap.EnemyType.ACE, 80, "Announcement", 0, 0,
+                        new String[0], new String[0],
+                        line("Announcement", "Attention Deskintop High. Finals are in one week. I'd hate to see anyone underprepared.", "Who WAS that?", "Actually terrifying."),
+                        item("Announcement", "Marcus is now visible. The senior hallway opens."));
+            case 18:
+                return story("rico", "Find Rico and Dexter before the final.", false, GameMap.EnemyType.GEEK, 80, "Rico + Dexter", 0, 0,
+                        new String[0], new String[0],
+                        line("Rico", "We're not coming with you. But whatever happens in there, you earned it.", "You guys are the worst.", "...Thanks."),
+                        item("Dexter", "You received Extra Time and Process of Elimination."));
+            case 19:
+                return story("val", "Find Marcus Reid, The Val.", true, GameMap.EnemyType.ACE, 240, "The Val", 0, 2,
+                        new String[]{"WannaCry"}, new String[0],
+                        line("The Val", "You made it. I'll be honest - I didn't think you would.", "They were both wrong.", "I had help."),
+                        line("The Val", "This was never about the grade. It was about proving no one deserves to win.", "That's different.", "I earned this."),
+                        line("The Val", "Prove it.", "Fight", "Let's end this."));
+            default:
+                return story("announcement", "Story complete. Valedictorian: TBD.", false, GameMap.EnemyType.GEEK, 80, "Story Complete", 0, 0,
+                        new String[0], new String[0],
+                        item("System", "Full game complete. Valedictorian: TBD."));
+        }
+    }
+
+    private StoryEvent story(String spriteId, String questText, boolean battle, GameMap.EnemyType type,
+                             int hp, String battleName, int gumballs, int randomCards,
+                             String[] namedCards, String[] slotCards, DialogOverlay.Line... lines) {
+        return story(spriteId, questText, battle, type, hp, battleName, gumballs, randomCards,
+                namedCards, slotCards, new String[0], lines);
+    }
+
+    private StoryEvent story(String spriteId, String questText, boolean battle, GameMap.EnemyType type,
+                             int hp, String battleName, int gumballs, int randomCards,
+                             String[] namedCards, String[] slotCards, String[] cheatSheets,
+                             DialogOverlay.Line... lines) {
+        if (battle && lines.length > 0) {
+            DialogOverlay.Line last = lines[lines.length - 1];
+            lines[lines.length - 1] = new DialogOverlay.Line(last.speaker, last.text, last.responses, last.itemText, true);
+        }
+        return new StoryEvent(spriteId, questText, type, hp, battleName, gumballs, randomCards, namedCards, slotCards, cheatSheets, lines);
+    }
+
+    private static class StoryEvent {
+        final String spriteId;
+        final String questText;
+        final GameMap.EnemyType enemyType;
+        final int enemyHealth;
+        final String battleName;
+        final int gumballs;
+        final int randomCards;
+        final String[] namedCards;
+        final String[] slotCards;
+        final String[] cheatSheets;
+        final DialogOverlay.Line[] lines;
+
+        StoryEvent(String spriteId, String questText, GameMap.EnemyType enemyType, int enemyHealth,
+                   String battleName, int gumballs, int randomCards, String[] namedCards,
+                   String[] slotCards, String[] cheatSheets, DialogOverlay.Line[] lines) {
+            this.spriteId = spriteId;
+            this.questText = questText;
+            this.enemyType = enemyType;
+            this.enemyHealth = enemyHealth;
+            this.battleName = battleName;
+            this.gumballs = gumballs;
+            this.randomCards = randomCards;
+            this.namedCards = namedCards;
+            this.slotCards = slotCards;
+            this.cheatSheets = cheatSheets;
+            this.lines = lines;
+        }
     }
 }

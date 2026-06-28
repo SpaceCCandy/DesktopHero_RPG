@@ -1,15 +1,28 @@
-G,50
-B,Punching Ghost
-B,Studying
+V,4
+G,40
 B,Bonus answers
+B,Bonus answers
+B,Studying
 B,ChatGPT
 B,Studying
-B,Studying
-B,Billy tuants
+B,Johnny's Deodorant
 B,Textbook
+B,Long Division
 B,Billy tuants
-B,ChatGPT
-E,0,Claude
-E,1,Textbook
-E,2,Studying
-E,3,MAGIC WAND
+B,Comma Splice
+B,Textbook
+B,Textbook
+B,Pop Quiz
+B,Pi day
+B,Pop Quiz
+B,Pop Quiz
+B,Pop Quiz
+E,0,Emotional Damage
+E,1,Punching Ghost
+E,2,Emotional Damage
+E,3,Emotional Damage
+SHOPT,1782618448936
+SHOPS,Rubber Duck Debugging
+SHOPS,Industrial Revolution
+SHOPS,Curve
+SHOPS,Photosynthesis
